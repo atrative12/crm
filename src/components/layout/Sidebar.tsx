@@ -11,7 +11,8 @@ import {
   Sun,
   Moon,
   X,
-  UserCog
+  UserCog,
+  ClipboardList
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -39,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'clients', label: 'Clientes', icon: Users },
     { id: 'opportunities', label: 'Oportunidades', icon: Briefcase },
     { id: 'tasks', label: 'Tarefas', icon: Calendar },
+    { id: 'tickets', label: 'Chamados', icon: ClipboardList },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { id: 'ai-agents', label: 'Agentes de IA', icon: Sparkles },
   ];

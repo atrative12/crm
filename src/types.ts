@@ -69,15 +69,55 @@ export interface UserRegistration {
   rejectionReason?: string;
 }
 
+export interface UserRole {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  level: number;
+  permissions: string[];
+  createdAt: string;
+}
+
 export interface ApprovedUser {
   id: string;
   username: string;
   email: string;
   fullName: string;
   role: 'user' | 'admin';
+  roleId?: string;
+  userRole?: UserRole;
   isActive: boolean;
   createdAt: string;
   lastLogin?: string;
+}
+
+export interface Ticket {
+  id: string;
+  title: string;
+  description?: string;
+  type: 'task' | 'objective' | 'training' | 'meeting';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'completed' | 'cancelled';
+  assignedTo?: string;
+  assignedBy?: string;
+  assignedToUser?: ApprovedUser;
+  assignedByUser?: ApprovedUser;
+  dueDate?: string;
+  dueTime?: string;
+  completionNotes?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketComment {
+  id: string;
+  ticketId: string;
+  userId: string;
+  user?: ApprovedUser;
+  comment: string;
+  createdAt: string;
 }
 
 export interface UserPermission {
@@ -151,5 +191,29 @@ export const AVAILABLE_PERMISSIONS: Permission[] = [
     label: 'Exportar Dados',
     description: 'Exportar dados em PDF e outros formatos',
     category: 'Relatórios'
+  },
+  {
+    name: 'manage_users',
+    label: 'Gerenciar Usuários',
+    description: 'Aprovar, editar e gerenciar usuários do sistema',
+    category: 'Administração'
+  },
+  {
+    name: 'manage_tickets',
+    label: 'Gerenciar Chamados',
+    description: 'Criar, editar e gerenciar chamados e atividades',
+    category: 'Gestão'
+  },
+  {
+    name: 'assign_tickets',
+    label: 'Atribuir Chamados',
+    description: 'Atribuir chamados e atividades para outros usuários',
+    category: 'Gestão'
+  },
+  {
+    name: 'view_tickets',
+    label: 'Ver Chamados',
+    description: 'Visualizar chamados atribuídos',
+    category: 'Gestão'
   }
 ];

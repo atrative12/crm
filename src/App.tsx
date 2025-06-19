@@ -13,6 +13,7 @@ import { TasksCalendar } from './components/tasks/TasksCalendar';
 import { WhatsAppChat } from './components/whatsapp/WhatsAppChat';
 import { AiAgentsManagement } from './components/ai-agents/AiAgentsManagement';
 import { UserManagement } from './components/admin/UserManagement';
+import { TicketsManagement } from './components/tickets/TicketsManagement';
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -67,6 +68,8 @@ function App() {
         return <OpportunitiesKanban />;
       case 'tasks':
         return <TasksCalendar />;
+      case 'tickets':
+        return <TicketsManagement currentUser={currentUser} />;
       case 'whatsapp':
         return <WhatsAppChat />;
       case 'ai-agents':

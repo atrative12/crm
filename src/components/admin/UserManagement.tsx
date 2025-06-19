@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, UserCheck, UserX, Clock, Mail, CheckCircle, XCircle, Eye, Settings, Shield, Trash2 } from 'lucide-react';
+import { Users, UserCheck, UserX, Clock, Mail, CheckCircle, XCircle, Eye, Settings, Shield, Trash2, Edit } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { UserPermissions } from './UserPermissions';
+import { UserRoleManagement } from './UserRoleManagement';
 import { supabase } from '../../lib/supabase';
 import { UserRegistration, ApprovedUser } from '../../types';
 
@@ -21,6 +22,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isDeleteRegistrationModalOpen, setIsDeleteRegistrationModalOpen] = useState(false);
   const [registrationToDelete, setRegistrationToDelete] = useState<UserRegistration | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -64,10 +66,20 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       setRegistrations(transformedRegistrations);
 
-      // Load approved users
+      // Load approved users with their roles
       const { data: usersData, error: usersError } = await supabase
         .from('approved_users')
-        .select('*')
+        .select(`
+          *,
+          user_roles (
+            id,
+            name,
+            display_name,
+            description,
+            level,
+            permissions
+          )
+        `)
         .order('created_at', { ascending: false });
 
       if (usersError) {
@@ -83,6 +95,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
         email: user.email,
         fullName: user.full_name,
         role: user.role,
+        roleId: user.role_id,
+        userRole: user.user_roles ? {
+          id: user.user_roles.id,
+          name: user.user_roles.name,
+          displayName: user.user_roles.display_name,
+          description: user.user_roles.description,
+          level: user.user_roles.level,
+          permissions: user.user_roles.permissions || [],
+          createdAt: ''
+        } : undefined,
         isActive: user.is_active,
         createdAt: user.created_at,
         lastLogin: user.last_login
@@ -117,6 +139,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       console.log('✅ Verificação de administrador OK:', adminCheck[0].username);
 
+      // Get default salesperson role
+      const { data: defaultRole, error: roleError } = await supabase
+        .from('user_roles')
+        .select('id')
+        .eq('name', 'salesperson')
+        .single();
+
+      if (roleError) {
+        console.error('❌ Erro ao buscar cargo padrão:', roleError);
+        alert('Erro: Não foi possível encontrar o cargo padrão.');
+        return;
+      }
+
       // Tentar inserir na tabela approved_users usando service_role
       const { data: insertedUser, error: insertError } = await supabase
         .from('approved_users')
@@ -126,6 +161,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
           password_hash: registration.passwordHash,
           full_name: registration.fullName,
           role: 'user',
+          role_id: defaultRole.id,
           is_active: true
         }])
         .select()
@@ -145,24 +181,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
           return;
         }
         
-        // Tentar uma abordagem alternativa usando RPC
-        console.log('🔄 Tentando abordagem alternativa com RPC...');
-        
-        const { data: rpcResult, error: rpcError } = await supabase.rpc('approve_user_registration', {
-          p_username: registration.username,
-          p_email: registration.email,
-          p_password_hash: registration.passwordHash,
-          p_full_name: registration.fullName,
-          p_registration_id: registration.id,
-          p_approved_by: currentUser
-        });
-
-        if (rpcError) {
-          console.error('❌ Erro no RPC:', rpcError);
-          throw new Error(`Falha na aprovação: ${rpcError.message}`);
-        }
-
-        console.log('✅ Aprovação via RPC bem-sucedida:', rpcResult);
+        throw new Error(`Falha na aprovação: ${insertError.message}`);
       } else {
         console.log('✅ Usuário inserido em approved_users:', insertedUser);
 
@@ -191,7 +210,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       alert('✅ Usuário aprovado com sucesso!');
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Erro geral na aprovação:', error);
       alert(`❌ Erro ao aprovar usuário: ${error.message || 'Erro desconhecido'}`);
     }
@@ -223,7 +242,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       alert('✅ Usuário rejeitado com sucesso!');
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Erro ao rejeitar usuário:', error);
       alert(`❌ Erro ao rejeitar usuário: ${error.message || 'Erro desconhecido'}`);
     }
@@ -258,7 +277,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       alert('✅ Solicitação de cadastro excluída com sucesso!');
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Erro ao excluir solicitação:', error);
       alert(`❌ Erro ao excluir solicitação: ${error.message || 'Erro desconhecido'}`);
     }
@@ -284,6 +303,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     setIsPermissionsModalOpen(true);
   };
 
+  const handleManageRole = (user: ApprovedUser) => {
+    setSelectedUser(user);
+    setIsRoleModalOpen(true);
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-warning-100 text-warning-800 dark:bg-warning-900/20 dark:text-warning-400';
@@ -299,6 +323,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
       case 'approved': return <CheckCircle className="w-4 h-4" />;
       case 'rejected': return <XCircle className="w-4 h-4" />;
       default: return <Clock className="w-4 h-4" />;
+    }
+  };
+
+  const getRoleColor = (level?: number) => {
+    switch (level) {
+      case 3: return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400';
+      case 2: return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
+      case 1: return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
     }
   };
 
@@ -325,7 +358,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
             Gerenciamento de Usuários
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Gerencie solicitações de cadastro, usuários aprovados e permissões
+            Gerencie solicitações de cadastro, usuários aprovados, cargos e permissões
           </p>
           <div className="mt-2 text-sm text-blue-600 dark:text-blue-400">
             👤 Logado como: <strong>{currentUser}</strong>
@@ -574,13 +607,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                           }`}>
                             {user.isActive ? 'Ativo' : 'Inativo'}
                           </span>
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                            user.role === 'admin'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400'
-                              : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
-                          }`}>
-                            {user.role === 'admin' ? 'Admin' : 'Usuário'}
-                          </span>
+                          {user.userRole && (
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getRoleColor(user.userRole.level)}`}>
+                              {user.userRole.displayName}
+                            </span>
+                          )}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
                           <div>
@@ -596,6 +627,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleManageRole(user)}
+                          className="flex items-center gap-1"
+                        >
+                          <Edit className="w-4 h-4" />
+                          Cargo
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -700,7 +740,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                 ⚠️ Importante
               </h5>
               <p className="text-sm text-blue-800 dark:text-blue-200">
-                Ao aprovar este usuário, ele será adicionado à tabela de usuários aprovados e poderá fazer login no sistema.
+                Ao aprovar este usuário, ele será adicionado à tabela de usuários aprovados com cargo de <strong>Vendedor</strong> e poderá fazer login no sistema.
               </p>
             </div>
 
@@ -778,6 +818,21 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={isRoleModalOpen}
+        onClose={() => setIsRoleModalOpen(false)}
+        title="Gerenciar Cargo"
+        size="lg"
+      >
+        {selectedUser && (
+          <UserRoleManagement
+            user={selectedUser}
+            onClose={() => setIsRoleModalOpen(false)}
+            onUpdate={loadData}
+          />
+        )}
       </Modal>
 
       <Modal
