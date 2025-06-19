@@ -61,6 +61,7 @@ export interface UserRegistration {
   username: string;
   email: string;
   fullName: string;
+  passwordHash: string;
   status: 'pending' | 'approved' | 'rejected';
   requestedAt: string;
   approvedAt?: string;

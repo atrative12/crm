@@ -38,6 +38,7 @@ export const UserManagement: React.FC = () => {
         username: reg.username,
         email: reg.email,
         fullName: reg.full_name,
+        passwordHash: reg.password_hash,
         status: reg.status,
         requestedAt: reg.requested_at,
         approvedAt: reg.approved_at,
@@ -77,18 +78,28 @@ export const UserManagement: React.FC = () => {
 
   const handleApproveUser = async (registration: UserRegistration) => {
     try {
-      // Move user to approved_users table
-      const { error: insertError } = await supabase
+      // Get current user to check if they're admin
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Use service role client for admin operations
+      const { data, error: insertError } = await supabase
         .from('approved_users')
         .insert([{
           username: registration.username,
           email: registration.email,
-          password_hash: '', // Will be set from registration
+          password_hash: registration.passwordHash,
           full_name: registration.fullName,
           role: 'user'
-        }]);
+        }])
+        .select();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('Insert error:', insertError);
+        throw insertError;
+      }
 
       // Update registration status
       const { error: updateError } = await supabase
@@ -96,11 +107,14 @@ export const UserManagement: React.FC = () => {
         .update({
           status: 'approved',
           approved_at: new Date().toISOString(),
-          approved_by: 'admin' // You can get this from auth context
+          approved_by: user.email || 'admin'
         })
         .eq('id', registration.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Update error:', updateError);
+        throw updateError;
+      }
 
       // Reload data
       await loadData();
@@ -109,6 +123,8 @@ export const UserManagement: React.FC = () => {
 
     } catch (error) {
       console.error('Error approving user:', error);
+      // Show user-friendly error message
+      alert('Erro ao aprovar usuário. Verifique se você tem permissões de administrador.');
     }
   };
 
