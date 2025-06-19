@@ -55,3 +55,26 @@ export interface Meeting {
   createdBy: string;
   createdAt: string;
 }
+
+export interface UserRegistration {
+  id: string;
+  username: string;
+  email: string;
+  fullName: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedAt: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectionReason?: string;
+}
+
+export interface ApprovedUser {
+  id: string;
+  username: string;
+  email: string;
+  fullName: string;
+  role: 'user' | 'admin';
+  isActive: boolean;
+  createdAt: string;
+  lastLogin?: string;
+}

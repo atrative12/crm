@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { LogIn } from 'lucide-react';
+import { LogIn, UserPlus } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
+import { RegistrationForm } from './RegistrationForm';
 import { useTheme } from '../../contexts/ThemeContext';
+import { supabase } from '../../lib/supabase';
 
 interface LoginPageProps {
   onLogin: (username: string) => void;
@@ -15,28 +17,70 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showRegistration, setShowRegistration] = useState(false);
+
+  const hashPassword = async (password: string): Promise<string> => {
+    // Simple hash for demo - in production, use proper bcrypt
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // First check hardcoded users for demo
+      const validUsers = {
+        'Victor': 'Club@380',
+        'Guilherme': 'Club@380',
+        'admin': 'Club@380'
+      };
 
-    const validUsers = {
-      'Victor': 'Club@380',
-      'Guilherme': 'Club@380'
-    };
+      if (validUsers[username as keyof typeof validUsers] === password) {
+        onLogin(username);
+        return;
+      }
 
-    if (validUsers[username as keyof typeof validUsers] === password) {
-      onLogin(username);
-    } else {
-      setError('Login ou senha inválidos.');
+      // Check database for approved users
+      const passwordHash = await hashPassword(password);
+      
+      const { data: user, error: dbError } = await supabase
+        .from('approved_users')
+        .select('*')
+        .eq('username', username)
+        .eq('password_hash', passwordHash)
+        .eq('is_active', true)
+        .single();
+
+      if (dbError || !user) {
+        setError('Login ou senha inválidos.');
+        return;
+      }
+
+      // Update last login
+      await supabase
+        .from('approved_users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', user.id);
+
+      onLogin(user.username);
+
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Erro ao fazer login. Tente novamente.');
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
+
+  if (showRegistration) {
+    return <RegistrationForm onBackToLogin={() => setShowRegistration(false)} />;
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary-50 to-secondary-50 dark:from-gray-900 dark:to-gray-800">
@@ -114,6 +158,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               {isLoading ? 'Entrando...' : 'Entrar'}
             </Button>
           </form>
+
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Não tem uma conta?
+            </p>
+            <Button
+              variant="ghost"
+              onClick={() => setShowRegistration(true)}
+              className="w-full flex items-center justify-center gap-2"
+            >
+              <UserPlus className="w-4 h-4" />
+              Solicitar Cadastro
+            </Button>
+          </div>
+
+          <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+            <p>Usuários de demonstração:</p>
+            <p>Victor / Guilherme (senha: Club@380)</p>
+          </div>
         </Card>
       </motion.div>
     </div>

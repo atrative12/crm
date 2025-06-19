@@ -12,6 +12,7 @@ import { OpportunitiesKanban } from './components/opportunities/OpportunitiesKan
 import { TasksCalendar } from './components/tasks/TasksCalendar';
 import { WhatsAppChat } from './components/whatsapp/WhatsAppChat';
 import { AiAgentsManagement } from './components/ai-agents/AiAgentsManagement';
+import { UserManagement } from './components/admin/UserManagement';
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -45,6 +46,8 @@ function App() {
         return <WhatsAppChat />;
       case 'ai-agents':
         return <AiAgentsManagement />;
+      case 'user-management':
+        return <UserManagement />;
       default:
         return <Dashboard />;
     }
@@ -89,6 +92,7 @@ function App() {
                     onLogout={handleLogout}
                     isOpen={isSidebarOpen}
                     onClose={() => setIsSidebarOpen(false)}
+                    currentUser={currentUser}
                   />
                   
                   <main className="flex-1 flex flex-col overflow-hidden">

@@ -10,7 +10,8 @@ import {
   Power,
   Sun,
   Moon,
-  X
+  X,
+  UserCog
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -20,6 +21,7 @@ interface SidebarProps {
   onLogout: () => void;
   isOpen: boolean;
   onClose: () => void;
+  currentUser?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -27,7 +29,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveView, 
   onLogout, 
   isOpen, 
-  onClose 
+  onClose,
+  currentUser 
 }) => {
   const { theme, toggleTheme } = useTheme();
 
@@ -39,6 +42,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { id: 'ai-agents', label: 'Agentes de IA', icon: Sparkles },
   ];
+
+  // Add admin menu for admin users
+  if (currentUser === 'admin' || currentUser === 'Victor' || currentUser === 'Guilherme') {
+    menuItems.push({ id: 'user-management', label: 'Usuários', icon: UserCog });
+  }
 
   const handleMenuClick = (viewId: string) => {
     setActiveView(viewId);
