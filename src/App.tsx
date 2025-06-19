@@ -61,11 +61,11 @@ function App() {
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard currentUser={currentUser} />;
       case 'clients':
         return <ClientsList currentUser={currentUser} />;
       case 'opportunities':
-        return <OpportunitiesKanban />;
+        return <OpportunitiesKanban currentUser={currentUser} />;
       case 'tasks':
         return <TasksCalendar />;
       case 'tickets':
@@ -77,7 +77,7 @@ function App() {
       case 'user-management':
         return <UserManagement currentUser={currentUser} />;
       default:
-        return <Dashboard />;
+        return <Dashboard currentUser={currentUser} />;
     }
   };
 

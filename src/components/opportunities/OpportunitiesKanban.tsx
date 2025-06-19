@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, DollarSign, Calendar, User, Edit, BarChart2, Flag } from 'lucide-react';
+import { Plus, DollarSign, Calendar, User, Edit, BarChart2, Flag, FileText, ClipboardList } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { OpportunityForm } from './OpportunityForm';
+import { ContractGenerator } from './ContractGenerator';
+import { TicketForm } from '../tickets/TicketForm';
 import { useData } from '../../contexts/DataContext';
-import { Opportunity } from '../../types';
+import { Opportunity, ApprovedUser } from '../../types';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
+import { supabase } from '../../lib/supabase';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -36,15 +39,125 @@ const stages = [
     { id: 'fechado-perdeu', name: 'Fechado (Perdeu)', color: 'bg-red-500' }
 ];
 
-export const OpportunitiesKanban: React.FC = () => {
+interface OpportunitiesKanbanProps {
+  currentUser?: string;
+}
+
+export const OpportunitiesKanban: React.FC<OpportunitiesKanbanProps> = ({ currentUser }) => {
   const { clients, opportunities, addOpportunity, updateOpportunity, updateClient } = useData();
   
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+  const [contractOpportunity, setContractOpportunity] = useState<Opportunity | null>(null);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Estados para gerenciamento de usuários e tickets
+  const [users, setUsers] = useState<ApprovedUser[]>([]);
+  const [currentUserData, setCurrentUserData] = useState<ApprovedUser | null>(null);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+
+  // Carregar dados dos usuários quando necessário
+  React.useEffect(() => {
+    if (currentUser && (isTicketModalOpen || isContractModalOpen)) {
+      loadUsersData();
+    }
+  }, [currentUser, isTicketModalOpen, isContractModalOpen]);
+
+  const loadUsersData = async () => {
+    try {
+      setIsLoadingUsers(true);
+
+      // Load current user data
+      const { data: userData, error: userError } = await supabase
+        .from('approved_users')
+        .select(`
+          *,
+          user_roles (
+            id,
+            name,
+            display_name,
+            level,
+            permissions
+          )
+        `)
+        .eq('username', currentUser)
+        .single();
+
+      if (userError) throw userError;
+
+      const transformedCurrentUser: ApprovedUser = {
+        id: userData.id,
+        username: userData.username,
+        email: userData.email,
+        fullName: userData.full_name,
+        role: userData.role,
+        roleId: userData.role_id,
+        userRole: userData.user_roles ? {
+          id: userData.user_roles.id,
+          name: userData.user_roles.name,
+          displayName: userData.user_roles.display_name,
+          level: userData.user_roles.level,
+          permissions: userData.user_roles.permissions || [],
+          createdAt: ''
+        } : undefined,
+        isActive: userData.is_active,
+        createdAt: userData.created_at,
+        lastLogin: userData.last_login
+      };
+
+      setCurrentUserData(transformedCurrentUser);
+
+      // Load all users for assignment (only if current user is admin/manager)
+      if (transformedCurrentUser.userRole?.level && transformedCurrentUser.userRole.level >= 2) {
+        const { data: usersData, error: usersError } = await supabase
+          .from('approved_users')
+          .select(`
+            *,
+            user_roles (
+              id,
+              name,
+              display_name,
+              level
+            )
+          `)
+          .eq('is_active', true)
+          .order('full_name');
+
+        if (usersError) throw usersError;
+
+        const transformedUsers: ApprovedUser[] = (usersData || []).map(user => ({
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          fullName: user.full_name,
+          role: user.role,
+          roleId: user.role_id,
+          userRole: user.user_roles ? {
+            id: user.user_roles.id,
+            name: user.user_roles.name,
+            displayName: user.user_roles.display_name,
+            level: user.user_roles.level,
+            permissions: [],
+            createdAt: ''
+          } : undefined,
+          isActive: user.is_active,
+          createdAt: user.created_at
+        }));
+
+        setUsers(transformedUsers);
+      }
+
+    } catch (error) {
+      console.error('Error loading users data:', error);
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
   
   const handleAddOpportunity = () => {
     setSelectedOpportunity(null);
@@ -63,6 +176,52 @@ export const OpportunitiesKanban: React.FC = () => {
       addOpportunity(formData);
     }
     setIsOpportunityModalOpen(false);
+  };
+
+  const handleGenerateContract = (opportunity: Opportunity) => {
+    setContractOpportunity(opportunity);
+    setIsContractModalOpen(true);
+  };
+
+  const handleCreateTicket = (opportunity: Opportunity) => {
+    setSelectedOpportunity(opportunity);
+    setIsTicketModalOpen(true);
+  };
+
+  const handleSaveTicket = async (formData: any) => {
+    try {
+      if (!currentUserData) {
+        alert('Erro: Dados do usuário não carregados.');
+        return;
+      }
+
+      // Create new ticket
+      const { error } = await supabase
+        .from('tickets')
+        .insert([{
+          title: formData.title,
+          description: formData.description,
+          type: formData.type,
+          priority: formData.priority,
+          status: formData.status,
+          assigned_to: formData.assignedTo || null,
+          assigned_by: currentUserData.id,
+          due_date: formData.dueDate || null,
+          due_time: formData.dueTime || null
+        }]);
+
+      if (error) throw error;
+
+      alert('✅ Chamado criado com sucesso!');
+      setIsTicketModalOpen(false);
+    } catch (error) {
+      console.error('Error saving ticket:', error);
+      alert('Erro ao criar chamado. Tente novamente.');
+    }
+  };
+
+  const canManageTickets = () => {
+    return currentUserData?.userRole?.level && currentUserData.userRole.level >= 2;
   };
   
   const handleGeneratePdf = () => {
@@ -353,11 +512,18 @@ export const OpportunitiesKanban: React.FC = () => {
         const updatedOpportunity = { ...opportunity, status: destination.droppableId };
         updateOpportunity(updatedOpportunity);
 
+        // Se a venda foi fechada como ganha, mostrar opção de gerar contrato
         if (destination.droppableId === 'fechado-ganhou') {
             const clientToUpdate = clients.find(c => c.nomeCompleto === updatedOpportunity.clientName);
             if (clientToUpdate) {
                 updateClient({ ...clientToUpdate, status: 'Fechado (Ganhou)' });
             }
+            
+            // Mostrar modal de contrato automaticamente
+            setTimeout(() => {
+              setContractOpportunity(updatedOpportunity);
+              setIsContractModalOpen(true);
+            }, 500);
         }
     }
   };
@@ -373,6 +539,11 @@ export const OpportunitiesKanban: React.FC = () => {
             <Button onClick={() => setIsReportModalOpen(true)} variant='outline' className="flex items-center gap-2">
                 <BarChart2 className="w-4 h-4" /> Relatório Executivo
             </Button>
+            {currentUser && canManageTickets() && (
+              <Button onClick={() => setIsTicketModalOpen(true)} variant='secondary' className="flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" /> Novo Chamado
+              </Button>
+            )}
             <Button onClick={handleAddOpportunity} className="flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Nova Oportunidade
             </Button>
@@ -413,7 +584,33 @@ export const OpportunitiesKanban: React.FC = () => {
                               >
                                 <div className="flex justify-between items-start mb-3">
                                   <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm" onClick={() => handleEditOpportunity(opportunity)}>{opportunity.name}</h4>
-                                  <button onClick={(e) => { e.stopPropagation(); handleEditOpportunity(opportunity);}} className="p-1 text-gray-400 hover:text-primary-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><Edit className="w-3 h-3" /></button>
+                                  <div className="flex gap-1">
+                                    {stage.id === 'fechado-ganhou' && (
+                                      <button 
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          handleGenerateContract(opportunity);
+                                        }} 
+                                        className="p-1 text-blue-600 hover:text-blue-800 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/20"
+                                        title="Gerar Contrato"
+                                      >
+                                        <FileText className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    {currentUser && canManageTickets() && (
+                                      <button 
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          handleCreateTicket(opportunity);
+                                        }} 
+                                        className="p-1 text-green-600 hover:text-green-800 rounded-full hover:bg-green-100 dark:hover:bg-green-900/20"
+                                        title="Criar Chamado"
+                                      >
+                                        <ClipboardList className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button onClick={(e) => { e.stopPropagation(); handleEditOpportunity(opportunity);}} className="p-1 text-gray-400 hover:text-primary-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"><Edit className="w-3 h-3" /></button>
+                                  </div>
                                 </div>
                                 <div className="space-y-2 text-xs">
                                   <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400"><User className="w-3 h-3" /><span>{opportunity.clientName}</span></div>
@@ -438,6 +635,35 @@ export const OpportunitiesKanban: React.FC = () => {
       
       <Modal isOpen={isOpportunityModalOpen} onClose={() => setIsOpportunityModalOpen(false)} title={selectedOpportunity ? "Editar Oportunidade" : "Nova Oportunidade"}>
         <OpportunityForm opportunity={selectedOpportunity} onClose={() => setIsOpportunityModalOpen(false)} onSave={handleSaveOpportunity} />
+      </Modal>
+
+      <Modal isOpen={isContractModalOpen} onClose={() => setIsContractModalOpen(false)} title="Gerar Contrato de Prestação de Serviços" size="lg">
+        {contractOpportunity && (
+          <ContractGenerator 
+            opportunity={contractOpportunity} 
+            onGenerated={() => {
+              setIsContractModalOpen(false);
+              alert('✅ Contrato gerado com sucesso! Verifique o arquivo baixado.');
+            }} 
+          />
+        )}
+      </Modal>
+
+      <Modal isOpen={isTicketModalOpen} onClose={() => setIsTicketModalOpen(false)} title="Criar Novo Chamado" size="lg">
+        {!isLoadingUsers && (
+          <TicketForm
+            ticket={null}
+            users={users}
+            currentUser={currentUserData}
+            onClose={() => setIsTicketModalOpen(false)}
+            onSave={handleSaveTicket}
+          />
+        )}
+        {isLoadingUsers && (
+          <div className="flex items-center justify-center p-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        )}
       </Modal>
 
       <Modal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} title="Gerar Relatório Executivo" size="md">

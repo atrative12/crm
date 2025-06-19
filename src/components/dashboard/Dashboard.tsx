@@ -1,11 +1,16 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Briefcase, Calendar, TrendingUp, Target, DollarSign, UserCheck, MapPin, MousePointerClick } from 'lucide-react';
+import { Users, Briefcase, Calendar, TrendingUp, Target, DollarSign, UserCheck, MapPin, MousePointerClick, ClipboardList, Plus } from 'lucide-react';
 import { StatsCard } from '../ui/StatsCard';
 import { Card } from '../ui/Card';
+import { Button } from '../ui/Button';
+import { Modal } from '../ui/Modal';
+import { TicketForm } from '../tickets/TicketForm';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useData } from '../../contexts/DataContext';
+import { supabase } from '../../lib/supabase';
+import { ApprovedUser } from '../../types';
 
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -32,18 +37,162 @@ const MapZoomHandler = ({ setZoom }: { setZoom: (zoom: number) => void }) => {
   return null;
 }
 
-export const Dashboard: React.FC = () => {
+interface DashboardProps {
+  currentUser?: string;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({ currentUser }) => {
     const { isDarkMode } = useTheme();
     const { clients, opportunities } = useData();
     const [tasks, setTasks] = useState<any[]>([]);
     const [isClient, setIsClient] = useState(false);
     const [zoom, setZoom] = useState(4);
 
+    // Estados para gerenciamento de chamados
+    const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+    const [users, setUsers] = useState<ApprovedUser[]>([]);
+    const [currentUserData, setCurrentUserData] = useState<ApprovedUser | null>(null);
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+
     useEffect(() => {
         const loadedTasks = JSON.parse(localStorage.getItem('crm_tasks') || '[]');
         setTasks(loadedTasks);
         setIsClient(true);
-    }, []);
+
+        // Carregar dados do usuário se fornecido
+        if (currentUser) {
+            loadCurrentUserData();
+        }
+    }, [currentUser]);
+
+    const loadCurrentUserData = async () => {
+        if (!currentUser) return;
+
+        try {
+            setIsLoadingUsers(true);
+
+            // Load current user data
+            const { data: userData, error: userError } = await supabase
+                .from('approved_users')
+                .select(`
+                    *,
+                    user_roles (
+                        id,
+                        name,
+                        display_name,
+                        level,
+                        permissions
+                    )
+                `)
+                .eq('username', currentUser)
+                .single();
+
+            if (userError) throw userError;
+
+            const transformedCurrentUser: ApprovedUser = {
+                id: userData.id,
+                username: userData.username,
+                email: userData.email,
+                fullName: userData.full_name,
+                role: userData.role,
+                roleId: userData.role_id,
+                userRole: userData.user_roles ? {
+                    id: userData.user_roles.id,
+                    name: userData.user_roles.name,
+                    displayName: userData.user_roles.display_name,
+                    level: userData.user_roles.level,
+                    permissions: userData.user_roles.permissions || [],
+                    createdAt: ''
+                } : undefined,
+                isActive: userData.is_active,
+                createdAt: userData.created_at,
+                lastLogin: userData.last_login
+            };
+
+            setCurrentUserData(transformedCurrentUser);
+
+            // Load all users for assignment (only if current user is admin/manager)
+            if (transformedCurrentUser.userRole?.level && transformedCurrentUser.userRole.level >= 2) {
+                const { data: usersData, error: usersError } = await supabase
+                    .from('approved_users')
+                    .select(`
+                        *,
+                        user_roles (
+                            id,
+                            name,
+                            display_name,
+                            level
+                        )
+                    `)
+                    .eq('is_active', true)
+                    .order('full_name');
+
+                if (usersError) throw usersError;
+
+                const transformedUsers: ApprovedUser[] = (usersData || []).map(user => ({
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    fullName: user.full_name,
+                    role: user.role,
+                    roleId: user.role_id,
+                    userRole: user.user_roles ? {
+                        id: user.user_roles.id,
+                        name: user.user_roles.name,
+                        displayName: user.user_roles.display_name,
+                        level: user.user_roles.level,
+                        permissions: [],
+                        createdAt: ''
+                    } : undefined,
+                    isActive: user.is_active,
+                    createdAt: user.created_at
+                }));
+
+                setUsers(transformedUsers);
+            }
+
+        } catch (error) {
+            console.error('Error loading user data:', error);
+        } finally {
+            setIsLoadingUsers(false);
+        }
+    };
+
+    const handleSaveTicket = async (formData: any) => {
+        try {
+            if (!currentUserData) {
+                alert('Erro: Dados do usuário não carregados.');
+                return;
+            }
+
+            // Create new ticket
+            const { error } = await supabase
+                .from('tickets')
+                .insert([{
+                    title: formData.title,
+                    description: formData.description,
+                    type: formData.type,
+                    priority: formData.priority,
+                    status: formData.status,
+                    assigned_to: formData.assignedTo || null,
+                    assigned_by: currentUserData.id,
+                    due_date: formData.dueDate || null,
+                    due_time: formData.dueTime || null
+                }]);
+
+            if (error) throw error;
+
+            alert('✅ Chamado criado com sucesso!');
+            setIsTicketModalOpen(false);
+        } catch (error) {
+            console.error('Error saving ticket:', error);
+            alert('Erro ao criar chamado. Tente novamente.');
+        }
+    };
+
+    const canManageTickets = () => {
+        return currentUserData?.userRole?.level && currentUserData.userRole.level >= 2;
+    };
 
     const statsData = useMemo(() => {
         const newClients = clients.filter(c => c.status === 'Novo').length;
@@ -110,15 +259,29 @@ export const Dashboard: React.FC = () => {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="p-4 lg:p-6 space-y-6 lg:space-y-8">
             <motion.div variants={itemVariants}>
-                <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Dashboard</h2>
-                <p className="text-gray-600 dark:text-gray-400">
-                    Visão geral do seu negócio e métricas importantes.
-                    {lastClientAdded?.createdBy && (
-                        <span className="text-sm block mt-1">
-                            Último cliente adicionado por: <strong className="text-primary-600 dark:text-primary-400">{lastClientAdded.createdBy}</strong>
-                        </span>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Dashboard</h2>
+                        <p className="text-gray-600 dark:text-gray-400">
+                            Visão geral do seu negócio e métricas importantes.
+                            {lastClientAdded?.createdBy && (
+                                <span className="text-sm block mt-1">
+                                    Último cliente adicionado por: <strong className="text-primary-600 dark:text-primary-400">{lastClientAdded.createdBy}</strong>
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                    {currentUser && canManageTickets() && (
+                        <Button 
+                            onClick={() => setIsTicketModalOpen(true)} 
+                            className="flex items-center gap-2"
+                            variant="secondary"
+                        >
+                            <ClipboardList className="w-4 h-4" />
+                            Abrir Chamado
+                        </Button>
                     )}
-                </p>
+                </div>
             </motion.div>
 
             <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
@@ -186,6 +349,29 @@ export const Dashboard: React.FC = () => {
                     )}
                 </Card>
             </motion.div>
+
+            {/* Modal para criar chamado */}
+            <Modal
+                isOpen={isTicketModalOpen}
+                onClose={() => setIsTicketModalOpen(false)}
+                title="Abrir Novo Chamado"
+                size="lg"
+            >
+                {!isLoadingUsers && currentUserData && (
+                    <TicketForm
+                        ticket={null}
+                        users={users}
+                        currentUser={currentUserData}
+                        onClose={() => setIsTicketModalOpen(false)}
+                        onSave={handleSaveTicket}
+                    />
+                )}
+                {isLoadingUsers && (
+                    <div className="flex items-center justify-center p-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                    </div>
+                )}
+            </Modal>
         </motion.div>
     );
 };
