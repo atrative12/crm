@@ -32,13 +32,20 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     try {
       setIsLoading(true);
 
+      console.log('🔄 Carregando dados de usuários...');
+
       // Load pending registrations
       const { data: registrationsData, error: regError } = await supabase
         .from('user_registrations')
         .select('*')
         .order('requested_at', { ascending: false });
 
-      if (regError) throw regError;
+      if (regError) {
+        console.error('❌ Erro ao carregar registrations:', regError);
+        throw regError;
+      }
+
+      console.log('✅ Registrations carregadas:', registrationsData?.length || 0);
 
       const transformedRegistrations: UserRegistration[] = (registrationsData || []).map(reg => ({
         id: reg.id,
@@ -61,7 +68,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (usersError) throw usersError;
+      if (usersError) {
+        console.error('❌ Erro ao carregar approved_users:', usersError);
+        throw usersError;
+      }
+
+      console.log('✅ Approved users carregados:', usersData?.length || 0);
 
       const transformedUsers: ApprovedUser[] = (usersData || []).map(user => ({
         id: user.id,
@@ -77,7 +89,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
       setApprovedUsers(transformedUsers);
 
     } catch (error) {
-      console.error('Error loading user data:', error);
+      console.error('❌ Erro geral ao carregar dados:', error);
     } finally {
       setIsLoading(false);
     }
@@ -85,8 +97,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
   const handleApproveUser = async (registration: UserRegistration) => {
     try {
-      // Insert into approved_users
-      const { error: insertError } = await supabase
+      console.log('🔄 Iniciando aprovação do usuário:', registration.username);
+
+      // Primeiro, tentar inserir na tabela approved_users
+      const { data: insertedUser, error: insertError } = await supabase
         .from('approved_users')
         .insert([{
           username: registration.username,
@@ -94,11 +108,31 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
           password_hash: registration.passwordHash,
           full_name: registration.fullName,
           role: 'user'
-        }]);
+        }])
+        .select()
+        .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('❌ Erro ao inserir em approved_users:', insertError);
+        
+        // Verificar se é erro de duplicata
+        if (insertError.code === '23505') {
+          alert('Erro: Este usuário já foi aprovado anteriormente.');
+          return;
+        }
+        
+        // Verificar se é erro de permissão
+        if (insertError.message.includes('permission') || insertError.message.includes('policy')) {
+          alert('Erro de permissão: Você não tem autorização para aprovar usuários. Verifique se você está logado como administrador.');
+          return;
+        }
+        
+        throw insertError;
+      }
 
-      // Update registration status
+      console.log('✅ Usuário inserido em approved_users:', insertedUser);
+
+      // Atualizar o status da registration
       const { error: updateError } = await supabase
         .from('user_registrations')
         .update({
@@ -108,21 +142,31 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
         })
         .eq('id', registration.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('❌ Erro ao atualizar registration:', updateError);
+        // Não falhar aqui, pois o usuário já foi criado
+        console.log('⚠️ Usuário foi criado mas status da registration não foi atualizado');
+      }
 
-      // Reload data
+      console.log('✅ Aprovação concluída com sucesso');
+
+      // Recarregar dados
       await loadData();
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
 
+      alert('Usuário aprovado com sucesso!');
+
     } catch (error) {
-      console.error('Error approving user:', error);
-      alert('Erro ao aprovar usuário. Verifique se você tem permissões de administrador.');
+      console.error('❌ Erro geral na aprovação:', error);
+      alert(`Erro ao aprovar usuário: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
   const handleRejectUser = async (registration: UserRegistration, reason: string) => {
     try {
+      console.log('🔄 Rejeitando usuário:', registration.username);
+
       const { error } = await supabase
         .from('user_registrations')
         .update({
@@ -131,15 +175,23 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
         })
         .eq('id', registration.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao rejeitar usuário:', error);
+        throw error;
+      }
+
+      console.log('✅ Usuário rejeitado com sucesso');
 
       await loadData();
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
       setRejectionReason('');
 
+      alert('Usuário rejeitado com sucesso!');
+
     } catch (error) {
-      console.error('Error rejecting user:', error);
+      console.error('❌ Erro ao rejeitar usuário:', error);
+      alert(`Erro ao rejeitar usuário: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -206,6 +258,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             Gerencie solicitações de cadastro, usuários aprovados e permissões
           </p>
+          <div className="mt-2 text-sm text-blue-600 dark:text-blue-400">
+            👤 Logado como: <strong>{currentUser}</strong>
+          </div>
         </div>
       </motion.div>
 
@@ -558,6 +613,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
               </h4>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Usuário: {selectedRegistration.username} | Email: {selectedRegistration.email}
+              </p>
+            </div>
+
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <h5 className="font-medium text-blue-900 dark:text-blue-100 mb-2">
+                ⚠️ Importante
+              </h5>
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                Ao aprovar este usuário, ele será adicionado à tabela de usuários aprovados e poderá fazer login no sistema.
               </p>
             </div>
 
