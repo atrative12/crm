@@ -42,13 +42,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       console.log('Password:', password);
       console.log('Password Hash:', passwordHash);
       
-      // Primeiro, vamos verificar se o usuário existe
+      // Primeiro, vamos verificar se existem usuários na tabela
+      const { data: allUsers, error: allUsersError } = await supabase
+        .from('approved_users')
+        .select('*');
+
+      console.log('Todos os usuários na tabela:', { allUsers, allUsersError });
+
+      if (allUsersError) {
+        console.error('Erro ao buscar todos os usuários:', allUsersError);
+        setError('Erro de conexão com o banco de dados.');
+        return;
+      }
+
+      if (!allUsers || allUsers.length === 0) {
+        console.log('Nenhum usuário encontrado na tabela approved_users');
+        setError('Nenhum usuário cadastrado no sistema.');
+        return;
+      }
+
+      // Agora vamos verificar se o usuário específico existe
       const { data: userCheck, error: checkError } = await supabase
         .from('approved_users')
         .select('*')
         .eq('username', username);
 
-      console.log('Verificação de usuário:', { userCheck, checkError });
+      console.log('Verificação de usuário específico:', { userCheck, checkError });
 
       if (checkError) {
         console.error('Erro na verificação:', checkError);
