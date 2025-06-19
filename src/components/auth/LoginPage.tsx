@@ -19,22 +19,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showRegistration, setShowRegistration] = useState(false);
 
-  // Usuários hardcoded para garantir que o login funcione
-  const hardcodedUsers = [
-    {
-      username: 'Victor',
-      password: 'Club@380',
-      fullName: 'Victor Administrador',
-      role: 'admin'
-    },
-    {
-      username: 'Guilherme', 
-      password: 'Club@380',
-      fullName: 'Guilherme Administrador',
-      role: 'admin'
-    }
-  ];
-
   const hashPassword = async (password: string): Promise<string> => {
     // Simple hash for demo - in production, use proper bcrypt
     const encoder = new TextEncoder();
@@ -50,22 +34,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setError('');
 
     try {
-      // Primeiro, verificar usuários hardcoded
-      const hardcodedUser = hardcodedUsers.find(
-        user => user.username === username && user.password === password
-      );
+      console.log('🔍 Tentando login para:', username);
+      const passwordHash = await hashPassword(password);
+      console.log('🔐 Hash da senha:', passwordHash);
 
-      if (hardcodedUser) {
-        console.log('✅ Login bem-sucedido com usuário hardcoded:', hardcodedUser.username);
-        onLogin(hardcodedUser.username);
+      // Primeiro, tentar na tabela de administradores
+      const { data: adminUser, error: adminError } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('username', username)
+        .eq('password_hash', passwordHash)
+        .eq('is_active', true)
+        .single();
+
+      if (!adminError && adminUser) {
+        console.log('✅ Login de administrador bem-sucedido:', adminUser.username);
+        
+        // Atualizar último login
+        await supabase
+          .from('admin_users')
+          .update({ last_login: new Date().toISOString() })
+          .eq('id', adminUser.id);
+
+        onLogin(adminUser.username);
         return;
       }
 
-      // Se não encontrou nos hardcoded, tentar no Supabase
-      console.log('🔍 Tentando login no Supabase...');
-      const passwordHash = await hashPassword(password);
-      
-      const { data: user, error: dbError } = await supabase
+      // Se não é admin, tentar na tabela de usuários aprovados
+      const { data: user, error: userError } = await supabase
         .from('approved_users')
         .select('*')
         .eq('username', username)
@@ -73,10 +69,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         .eq('is_active', true)
         .single();
 
-      if (!dbError && user) {
-        console.log('✅ Login bem-sucedido no Supabase:', user.username);
+      if (!userError && user) {
+        console.log('✅ Login de usuário bem-sucedido:', user.username);
         
-        // Update last login
+        // Atualizar último login
         await supabase
           .from('approved_users')
           .update({ last_login: new Date().toISOString() })
@@ -87,7 +83,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       }
 
       // Se chegou aqui, login falhou
-      console.log('❌ Login falhou');
+      console.log('❌ Login falhou - usuário não encontrado ou credenciais inválidas');
       setError('Login ou senha inválidos.');
 
     } catch (err) {
