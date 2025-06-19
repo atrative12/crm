@@ -39,15 +39,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       console.log('🔐 Hash da senha:', passwordHash);
 
       // Primeiro, tentar na tabela de administradores
-      const { data: adminUser, error: adminError } = await supabase
+      const { data: adminUsers, error: adminError } = await supabase
         .from('admin_users')
         .select('*')
         .eq('username', username)
         .eq('password_hash', passwordHash)
-        .eq('is_active', true)
-        .single();
+        .eq('is_active', true);
 
-      if (!adminError && adminUser) {
+      // Check if we found an admin user
+      if (!adminError && adminUsers && adminUsers.length > 0) {
+        const adminUser = adminUsers[0];
         console.log('✅ Login de administrador bem-sucedido:', adminUser.username);
         
         // Atualizar último login
@@ -61,15 +62,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       }
 
       // Se não é admin, tentar na tabela de usuários aprovados
-      const { data: user, error: userError } = await supabase
+      const { data: users, error: userError } = await supabase
         .from('approved_users')
         .select('*')
         .eq('username', username)
         .eq('password_hash', passwordHash)
-        .eq('is_active', true)
-        .single();
+        .eq('is_active', true);
 
-      if (!userError && user) {
+      // Check if we found a regular user
+      if (!userError && users && users.length > 0) {
+        const user = users[0];
         console.log('✅ Login de usuário bem-sucedido:', user.username);
         
         // Atualizar último login

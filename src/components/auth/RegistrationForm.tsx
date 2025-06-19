@@ -61,6 +61,32 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
+  const checkExistingUser = async (username: string, email: string) => {
+    // Check if username already exists
+    const { data: existingUsername } = await supabase
+      .from('user_registrations')
+      .select('username')
+      .eq('username', username)
+      .limit(1);
+
+    if (existingUsername && existingUsername.length > 0) {
+      return { exists: true, field: 'username' };
+    }
+
+    // Check if email already exists
+    const { data: existingEmail } = await supabase
+      .from('user_registrations')
+      .select('email')
+      .eq('email', email)
+      .limit(1);
+
+    if (existingEmail && existingEmail.length > 0) {
+      return { exists: true, field: 'email' };
+    }
+
+    return { exists: false };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -70,6 +96,18 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
     setError('');
 
     try {
+      // Check for existing users first to provide better error messages
+      const existingCheck = await checkExistingUser(formData.username, formData.email);
+      
+      if (existingCheck.exists) {
+        if (existingCheck.field === 'username') {
+          setError('Este nome de usuário já está em uso.');
+        } else if (existingCheck.field === 'email') {
+          setError('Este email já está cadastrado.');
+        }
+        return;
+      }
+
       // Hash the password
       const passwordHash = await hashPassword(formData.password);
 
@@ -87,7 +125,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
         .single();
 
       if (insertError) {
-        if (insertError.code === '23505') { // Unique constraint violation
+        // Handle any remaining unique constraint violations
+        if (insertError.code === '23505') {
           if (insertError.message.includes('username')) {
             setError('Este nome de usuário já está em uso.');
           } else if (insertError.message.includes('email')) {
