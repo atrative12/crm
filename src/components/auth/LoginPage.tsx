@@ -37,29 +37,50 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       // Check database for approved users
       const passwordHash = await hashPassword(password);
       
-      console.log('Tentando login com:', { username, passwordHash });
+      console.log('=== DEBUG LOGIN ===');
+      console.log('Username:', username);
+      console.log('Password:', password);
+      console.log('Password Hash:', passwordHash);
       
-      const { data: users, error: dbError } = await supabase
+      // Primeiro, vamos verificar se o usuário existe
+      const { data: userCheck, error: checkError } = await supabase
         .from('approved_users')
         .select('*')
-        .eq('username', username)
-        .eq('password_hash', passwordHash)
-        .eq('is_active', true);
+        .eq('username', username);
 
-      console.log('Resultado da consulta:', { users, dbError });
+      console.log('Verificação de usuário:', { userCheck, checkError });
 
-      if (dbError) {
-        console.error('Erro na consulta:', dbError);
-        setError('Erro ao verificar credenciais.');
+      if (checkError) {
+        console.error('Erro na verificação:', checkError);
+        setError('Erro ao verificar usuário.');
         return;
       }
 
-      if (!users || users.length === 0) {
-        setError('Login ou senha inválidos.');
+      if (!userCheck || userCheck.length === 0) {
+        console.log('Usuário não encontrado');
+        setError('Usuário não encontrado.');
         return;
       }
 
-      const user = users[0];
+      const user = userCheck[0];
+      console.log('Usuário encontrado:', user);
+      console.log('Hash no banco:', user.password_hash);
+      console.log('Hash calculado:', passwordHash);
+      console.log('Hashes são iguais?', user.password_hash === passwordHash);
+
+      // Verificar senha
+      if (user.password_hash !== passwordHash) {
+        setError('Senha incorreta.');
+        return;
+      }
+
+      // Verificar se está ativo
+      if (!user.is_active) {
+        setError('Usuário inativo.');
+        return;
+      }
+
+      console.log('Login bem-sucedido!');
 
       // Update last login
       await supabase
