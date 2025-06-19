@@ -11,8 +11,8 @@ export interface Client {
   observacoes: string;
   createdAt: string;
   createdBy?: string;
-  cidade?: string;   // <-- Linha necessária
-  estado?: string;   // <-- Linha necessária
+  cidade?: string;
+  estado?: string;
 }
 
 export interface Opportunity {
@@ -28,13 +28,30 @@ export interface Opportunity {
 }
 
 export interface Task {
-    id: string;
-    name: string;
-    description: string;
-    dueDate: string;
-    dueTime: string;
-    priority: 'Alta' | 'Média' | 'Baixa';
-    status: 'Pendente' | 'Em Andamento' | 'Concluída';
-    assignedTo: string;
-    createdAt: string;
+  id: string;
+  name: string;
+  description: string;
+  dueDate: string;
+  dueTime: string;
+  priority: 'Alta' | 'Média' | 'Baixa';
+  status: 'Pendente' | 'Em Andamento' | 'Concluída';
+  assignedTo: string;
+  createdAt: string;
+}
+
+export interface Meeting {
+  id: string;
+  title: string;
+  description: string;
+  clientName: string;
+  meetingDate: string;
+  meetingTime: string;
+  durationMinutes: number;
+  location: string;
+  meetingType: 'presencial' | 'online' | 'telefone';
+  status: 'agendada' | 'confirmada' | 'realizada' | 'cancelada';
+  attendees: string[];
+  notes: string;
+  createdBy: string;
+  createdAt: string;
 }
