@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, UserCheck, UserX, Clock, Mail, CheckCircle, XCircle, Eye, Settings, Shield } from 'lucide-react';
+import { Users, UserCheck, UserX, Clock, Mail, CheckCircle, XCircle, Eye, Settings, Shield, Trash2 } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
@@ -21,6 +21,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [isDeleteRegistrationModalOpen, setIsDeleteRegistrationModalOpen] = useState(false);
+  const [registrationToDelete, setRegistrationToDelete] = useState<UserRegistration | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
 
@@ -105,16 +107,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
         .from('admin_users')
         .select('*')
         .eq('username', currentUser)
-        .eq('is_active', true)
-        .single();
+        .eq('is_active', true);
 
-      if (adminError || !adminCheck) {
+      if (adminError || !adminCheck || adminCheck.length === 0) {
         console.error('❌ Usuário não é administrador:', adminError);
         alert('Erro: Você não tem permissões de administrador para aprovar usuários.');
         return;
       }
 
-      console.log('✅ Verificação de administrador OK:', adminCheck.username);
+      console.log('✅ Verificação de administrador OK:', adminCheck[0].username);
 
       // Tentar inserir na tabela approved_users usando service_role
       const { data: insertedUser, error: insertError } = await supabase
@@ -225,6 +226,41 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     } catch (error) {
       console.error('❌ Erro ao rejeitar usuário:', error);
       alert(`❌ Erro ao rejeitar usuário: ${error.message || 'Erro desconhecido'}`);
+    }
+  };
+
+  const handleDeleteRegistration = (registration: UserRegistration) => {
+    setRegistrationToDelete(registration);
+    setIsDeleteRegistrationModalOpen(true);
+  };
+
+  const handleConfirmDeleteRegistration = async () => {
+    if (!registrationToDelete) return;
+
+    try {
+      console.log('🔄 Excluindo solicitação de cadastro:', registrationToDelete.username);
+
+      const { error } = await supabase
+        .from('user_registrations')
+        .delete()
+        .eq('id', registrationToDelete.id);
+
+      if (error) {
+        console.error('❌ Erro ao excluir solicitação:', error);
+        throw error;
+      }
+
+      console.log('✅ Solicitação excluída com sucesso');
+
+      await loadData();
+      setIsDeleteRegistrationModalOpen(false);
+      setRegistrationToDelete(null);
+
+      alert('✅ Solicitação de cadastro excluída com sucesso!');
+
+    } catch (error) {
+      console.error('❌ Erro ao excluir solicitação:', error);
+      alert(`❌ Erro ao excluir solicitação: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -461,7 +497,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                   {processedRegistrations.map((registration) => (
                     <Card key={registration.id} className="p-4">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-1">
                           <span className="font-medium text-gray-900 dark:text-gray-100">
                             {registration.fullName}
                           </span>
@@ -473,8 +509,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                             {registration.status}
                           </span>
                         </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                          {registration.approvedAt && new Date(registration.approvedAt).toLocaleDateString('pt-BR')}
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
+                            {registration.approvedAt && new Date(registration.approvedAt).toLocaleDateString('pt-BR')}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteRegistration(registration)}
+                            className="text-danger-600 hover:text-danger-700 hover:bg-danger-50 dark:hover:bg-danger-900/20"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
                       {registration.rejectionReason && (
@@ -692,6 +738,46 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={isDeleteRegistrationModalOpen}
+        onClose={() => setIsDeleteRegistrationModalOpen(false)}
+        title="Confirmar Exclusão"
+        size="sm"
+      >
+        <div className="text-center">
+          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-danger-100 dark:bg-danger-900/20 mb-4">
+            <Trash2 className="h-6 w-6 text-danger-600 dark:text-danger-400" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+            Excluir Solicitação de Cadastro
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+            Tem certeza que deseja excluir permanentemente a solicitação de cadastro de "{registrationToDelete?.fullName}"? 
+            Esta ação não pode ser desfeita e removerá todos os dados da solicitação do banco de dados.
+          </p>
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-6">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              <strong>Atenção:</strong> Esta ação é irreversível. O usuário precisará fazer uma nova solicitação se quiser se cadastrar novamente.
+            </p>
+          </div>
+          <div className="flex gap-3 justify-center">
+            <Button
+              variant="ghost"
+              onClick={() => setIsDeleteRegistrationModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleConfirmDeleteRegistration}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Excluir Permanentemente
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       <Modal
