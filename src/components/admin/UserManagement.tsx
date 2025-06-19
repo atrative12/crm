@@ -126,100 +126,34 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     
     try {
       setIsProcessing(true);
-      console.log('🔄 Iniciando aprovação do usuário:', registration.username);
+      console.log('🔄 Iniciando aprovação via RPC:', registration.username);
       console.log('👤 Administrador logado:', currentUser);
 
-      // Verificar se o usuário atual é administrador
-      const { data: adminCheck, error: adminError } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('username', currentUser)
-        .eq('is_active', true);
+      // Usar a função RPC para aprovar o usuário
+      const { data, error } = await supabase.rpc('approve_user_registration', {
+        p_registration_id: registration.id,
+        p_approved_by: currentUser
+      });
 
-      if (adminError || !adminCheck || adminCheck.length === 0) {
-        console.error('❌ Usuário não é administrador:', adminError);
-        alert('Erro: Você não tem permissões de administrador para aprovar usuários.');
-        return;
+      if (error) {
+        console.error('❌ Erro na função RPC:', error);
+        throw new Error(`Erro na aprovação: ${error.message}`);
       }
 
-      console.log('✅ Verificação de administrador OK:', adminCheck[0].username);
+      console.log('📋 Resultado da função RPC:', data);
 
-      // Get default salesperson role
-      const { data: defaultRole, error: roleError } = await supabase
-        .from('user_roles')
-        .select('id')
-        .eq('name', 'salesperson')
-        .single();
-
-      if (roleError) {
-        console.error('❌ Erro ao buscar cargo padrão:', roleError);
-        alert('Erro: Não foi possível encontrar o cargo padrão.');
-        return;
+      if (!data.success) {
+        throw new Error(data.error || 'Erro desconhecido na aprovação');
       }
 
-      // Check if user already exists in approved_users
-      const { data: existingUser, error: existingError } = await supabase
-        .from('approved_users')
-        .select('id')
-        .eq('username', registration.username)
-        .single();
+      console.log('✅ Aprovação concluída com sucesso via RPC');
 
-      if (existingUser) {
-        alert('Erro: Este usuário já foi aprovado anteriormente.');
-        return;
-      }
-
-      // Insert into approved_users
-      const { data: insertedUser, error: insertError } = await supabase
-        .from('approved_users')
-        .insert([{
-          username: registration.username,
-          email: registration.email,
-          password_hash: registration.passwordHash,
-          full_name: registration.fullName,
-          role: 'user',
-          role_id: defaultRole.id,
-          is_active: true
-        }])
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('❌ Erro ao inserir em approved_users:', insertError);
-        
-        if (insertError.code === '23505') {
-          alert('Erro: Este usuário já foi aprovado anteriormente.');
-          return;
-        }
-        
-        throw new Error(`Falha na aprovação: ${insertError.message}`);
-      }
-
-      console.log('✅ Usuário inserido em approved_users:', insertedUser);
-
-      // Update registration status
-      const { error: updateError } = await supabase
-        .from('user_registrations')
-        .update({
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-          approved_by: currentUser
-        })
-        .eq('id', registration.id);
-
-      if (updateError) {
-        console.error('❌ Erro ao atualizar registration:', updateError);
-        console.log('⚠️ Usuário foi criado mas status da registration não foi atualizado');
-      }
-
-      console.log('✅ Aprovação concluída com sucesso');
-
-      // Reload data
+      // Recarregar dados
       await loadData();
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
 
-      alert('✅ Usuário aprovado com sucesso!');
+      alert(`✅ ${data.message}`);
 
     } catch (error: any) {
       console.error('❌ Erro geral na aprovação:', error);
@@ -234,29 +168,34 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     
     try {
       setIsProcessing(true);
-      console.log('🔄 Rejeitando usuário:', registration.username);
+      console.log('🔄 Rejeitando usuário via RPC:', registration.username);
 
-      const { error } = await supabase
-        .from('user_registrations')
-        .update({
-          status: 'rejected',
-          rejection_reason: reason
-        })
-        .eq('id', registration.id);
+      // Usar a função RPC para rejeitar o usuário
+      const { data, error } = await supabase.rpc('reject_user_registration', {
+        p_registration_id: registration.id,
+        p_rejected_by: currentUser,
+        p_rejection_reason: reason
+      });
 
       if (error) {
-        console.error('❌ Erro ao rejeitar usuário:', error);
-        throw error;
+        console.error('❌ Erro na função RPC de rejeição:', error);
+        throw new Error(`Erro na rejeição: ${error.message}`);
       }
 
-      console.log('✅ Usuário rejeitado com sucesso');
+      console.log('📋 Resultado da rejeição RPC:', data);
+
+      if (!data.success) {
+        throw new Error(data.error || 'Erro desconhecido na rejeição');
+      }
+
+      console.log('✅ Rejeição concluída com sucesso via RPC');
 
       await loadData();
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
       setRejectionReason('');
 
-      alert('✅ Usuário rejeitado com sucesso!');
+      alert(`✅ ${data.message}`);
 
     } catch (error: any) {
       console.error('❌ Erro ao rejeitar usuário:', error);
@@ -760,12 +699,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
               </p>
             </div>
 
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h5 className="font-medium text-blue-900 dark:text-blue-100 mb-2">
-                ⚠️ Importante
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+              <h5 className="font-medium text-green-900 dark:text-green-100 mb-2">
+                ✅ Sistema Aprimorado
               </h5>
-              <p className="text-sm text-blue-800 dark:text-blue-200">
-                Ao aprovar este usuário, ele será adicionado à tabela de usuários aprovados com cargo de <strong>Vendedor</strong> e poderá fazer login no sistema.
+              <p className="text-sm text-green-800 dark:text-green-200">
+                Agora usando função RPC (Remote Procedure Call) para aprovação mais robusta e segura. 
+                O usuário será criado com cargo de <strong>Vendedor</strong> e poderá fazer login imediatamente.
               </p>
             </div>
 
