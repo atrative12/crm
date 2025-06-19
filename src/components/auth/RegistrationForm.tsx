@@ -52,17 +52,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
     return true;
   };
 
-  const hashPassword = async (password: string): Promise<string> => {
-    // Simple hash for demo - in production, use proper bcrypt
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  };
-
   const checkExistingUser = async (username: string, email: string) => {
-    // Check if username already exists
+    // Check if username already exists in registrations
     const { data: existingUsername } = await supabase
       .from('user_registrations')
       .select('username')
@@ -73,7 +64,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
       return { exists: true, field: 'username' };
     }
 
-    // Check if email already exists
+    // Check if email already exists in registrations
     const { data: existingEmail } = await supabase
       .from('user_registrations')
       .select('email')
@@ -84,7 +75,38 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
       return { exists: true, field: 'email' };
     }
 
+    // Check if username already exists in approved users
+    const { data: existingApprovedUsername } = await supabase
+      .from('approved_users')
+      .select('username')
+      .eq('username', username)
+      .limit(1);
+
+    if (existingApprovedUsername && existingApprovedUsername.length > 0) {
+      return { exists: true, field: 'username' };
+    }
+
+    // Check if email already exists in approved users
+    const { data: existingApprovedEmail } = await supabase
+      .from('approved_users')
+      .select('email')
+      .eq('email', email)
+      .limit(1);
+
+    if (existingApprovedEmail && existingApprovedEmail.length > 0) {
+      return { exists: true, field: 'email' };
+    }
+
     return { exists: false };
+  };
+
+  const hashPassword = async (password: string): Promise<string> => {
+    // Simple hash for demo - in production, use proper bcrypt
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -96,17 +118,21 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
     setError('');
 
     try {
+      console.log('🔄 Verificando usuários existentes...');
+      
       // Check for existing users first to provide better error messages
       const existingCheck = await checkExistingUser(formData.username, formData.email);
       
       if (existingCheck.exists) {
         if (existingCheck.field === 'username') {
-          setError('Este nome de usuário já está em uso.');
+          setError('Este nome de usuário já está em uso ou já foi solicitado.');
         } else if (existingCheck.field === 'email') {
-          setError('Este email já está cadastrado.');
+          setError('Este email já está cadastrado ou já foi solicitado.');
         }
         return;
       }
+
+      console.log('✅ Usuário não existe, prosseguindo com cadastro...');
 
       // Hash the password
       const passwordHash = await hashPassword(formData.password);
@@ -125,6 +151,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
         .single();
 
       if (insertError) {
+        console.error('❌ Erro ao inserir solicitação:', insertError);
+        
         // Handle any remaining unique constraint violations
         if (insertError.code === '23505') {
           if (insertError.message.includes('username')) {
@@ -140,32 +168,12 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
         return;
       }
 
-      // Send email notification to admin
-      try {
-        const { error: emailError } = await supabase.functions.invoke('send-registration-email', {
-          body: {
-            registrationData: {
-              username: formData.username,
-              email: formData.email,
-              fullName: formData.fullName,
-              requestedAt: data.requested_at
-            }
-          }
-        });
-
-        if (emailError) {
-          console.error('Error sending email notification:', emailError);
-          // Don't fail the registration if email fails
-        }
-      } catch (emailError) {
-        console.error('Error sending email notification:', emailError);
-        // Continue with registration even if email fails
-      }
+      console.log('✅ Solicitação de cadastro criada com sucesso:', data);
 
       setIsSubmitted(true);
 
     } catch (err: any) {
-      console.error('Registration error:', err);
+      console.error('❌ Erro no cadastro:', err);
       setError('Erro ao processar solicitação. Tente novamente.');
     } finally {
       setIsLoading(false);
@@ -208,8 +216,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
               <p className="text-sm text-blue-800 dark:text-blue-200">
                 <strong>Próximos passos:</strong><br />
-                O administrador (club.atrative@gmail.com) recebeu sua solicitação e irá analisá-la. 
-                Você receberá um email quando sua conta for aprovada.
+                O administrador irá analisar sua solicitação diretamente no sistema CRM. 
+                Assim que aprovada, você poderá fazer login com suas credenciais.
               </p>
             </div>
 
@@ -339,10 +347,10 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogi
               </motion.p>
             )}
 
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-              <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                <strong>Importante:</strong> Sua solicitação será enviada para análise do administrador. 
-                Você receberá um email quando sua conta for aprovada.
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+              <p className="text-sm text-green-800 dark:text-green-200">
+                <strong>✅ Processo Simplificado:</strong> Sua solicitação será enviada diretamente para o administrador 
+                no sistema CRM. Assim que aprovada, você poderá fazer login imediatamente!
               </p>
             </div>
 
