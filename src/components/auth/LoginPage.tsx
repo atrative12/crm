@@ -43,7 +43,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         .eq('username', username)
         .eq('password_hash', passwordHash)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
       if (dbError || !user) {
         setError('Login ou senha inválidos.');
