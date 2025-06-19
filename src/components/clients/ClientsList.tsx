@@ -22,6 +22,7 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [detailedClient, setDetailedClient] = useState<Client | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Refresh data when component mounts or currentUser changes
   useEffect(() => {
@@ -52,40 +53,79 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
         setIsDeleteConfirmOpen(false);
       } catch (error) {
         console.error('Erro ao excluir cliente:', error);
+        alert('Erro ao excluir cliente. Tente novamente.');
       }
     }
   };
 
   const handleSaveClient = async (formData: Omit<Client, 'id' | 'createdAt' | 'createdBy'>) => {
+    if (isSaving) return; // Prevent double submission
+    
     try {
+      setIsSaving(true);
+      console.log('🔄 Salvando cliente:', formData);
+      
       if (selectedClient) {
         // Update existing client
+        console.log('📝 Atualizando cliente existente:', selectedClient.id);
         await updateClient({
           ...selectedClient,
           ...formData,
         });
+        console.log('✅ Cliente atualizado com sucesso');
       } else {
         // Create new client
-        const clientDataWithCreator = { ...formData, createdBy: currentUser };
-        await addClient(clientDataWithCreator);
+        console.log('➕ Criando novo cliente para usuário:', currentUser);
+        const clientDataWithCreator = { 
+          ...formData, 
+          createdBy: currentUser 
+        };
+        
+        const newClient = await addClient(clientDataWithCreator);
+        console.log('✅ Cliente criado com sucesso:', newClient);
 
         // Create opportunity for new client
-        const newOpportunityData = {
-          name: `Oportunidade - ${formData.nomeCompleto}`,
-          clientName: formData.nomeCompleto,
-          value: formData.valorPotencial || 0,
-          status: 'novo-lead',
-          nextAction: "Realizar primeiro contato",
-          description: `Oportunidade gerada do cadastro do cliente por ${currentUser}.`,
-        };
-        await addOpportunity(newOpportunityData);
+        try {
+          const newOpportunityData = {
+            name: `Oportunidade - ${formData.nomeCompleto}`,
+            clientName: formData.nomeCompleto,
+            value: formData.valorPotencial || 0,
+            status: 'novo-lead',
+            nextAction: "Realizar primeiro contato",
+            description: `Oportunidade gerada do cadastro do cliente por ${currentUser}.`,
+          };
+          
+          await addOpportunity(newOpportunityData);
+          console.log('✅ Oportunidade criada automaticamente');
+        } catch (oppError) {
+          console.error('⚠️ Erro ao criar oportunidade (cliente foi salvo):', oppError);
+          // Don't fail the whole operation if opportunity creation fails
+        }
       }
       
       setIsClientModalOpen(false);
       setSelectedClient(null);
+      
+      // Show success message
+      alert(selectedClient ? '✅ Cliente atualizado com sucesso!' : '✅ Cliente criado com sucesso!');
+      
     } catch (error) {
-      console.error('Erro ao salvar cliente:', error);
-      alert('Erro ao salvar cliente. Tente novamente.');
+      console.error('❌ Erro ao salvar cliente:', error);
+      
+      // More specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('permission') || error.message.includes('policy')) {
+          alert('❌ Erro de permissão: Você não tem autorização para salvar clientes. Contacte o administrador.');
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          alert('❌ Erro de conexão: Verifique sua internet e tente novamente.');
+        } else {
+          alert(`❌ Erro ao salvar cliente: ${error.message}`);
+        }
+      } else {
+        alert('❌ Erro desconhecido ao salvar cliente. Tente novamente.');
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -139,9 +179,13 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             Atualizar
           </Button>
-          <Button onClick={handleAddClient} className="flex items-center gap-2 w-full sm:w-auto">
+          <Button 
+            onClick={handleAddClient} 
+            className="flex items-center gap-2 w-full sm:w-auto"
+            disabled={isSaving}
+          >
             <Plus className="w-4 h-4" />
-            Novo Cliente
+            {isSaving ? 'Salvando...' : 'Novo Cliente'}
           </Button>
         </div>
       </motion.div>
@@ -151,6 +195,14 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
           <p className="text-danger-800 dark:text-danger-200 text-sm">
             ⚠️ {error}
           </p>
+          <Button 
+            onClick={handleRefresh} 
+            variant="ghost" 
+            size="sm" 
+            className="mt-2"
+          >
+            Tentar Novamente
+          </Button>
         </div>
       )}
 
@@ -202,8 +254,8 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
                     : 'Comece adicionando seu primeiro cliente'
                   }
                 </p>
-                <Button onClick={handleAddClient}>
-                  Adicionar Primeiro Cliente
+                <Button onClick={handleAddClient} disabled={isSaving}>
+                  {isSaving ? 'Salvando...' : 'Adicionar Primeiro Cliente'}
                 </Button>
               </Card>
             </motion.div>
@@ -237,12 +289,14 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleEditClient(client); }} 
                           className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
+                          disabled={isSaving}
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleDeleteClient(client); }} 
                           className="p-2 text-gray-400 hover:text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-900/20 rounded-lg transition-colors"
+                          disabled={isSaving}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -272,8 +326,17 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
         </AnimatePresence>
       )}
 
-      <Modal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} title={selectedClient ? "Editar Cliente" : "Novo Cliente"}>
-        <ClientForm client={selectedClient} onClose={() => setIsClientModalOpen(false)} onSave={handleSaveClient} />
+      <Modal 
+        isOpen={isClientModalOpen} 
+        onClose={() => !isSaving && setIsClientModalOpen(false)} 
+        title={selectedClient ? "Editar Cliente" : "Novo Cliente"}
+      >
+        <ClientForm 
+          client={selectedClient} 
+          onClose={() => setIsClientModalOpen(false)} 
+          onSave={handleSaveClient}
+          isLoading={isSaving}
+        />
       </Modal>
 
       <Modal isOpen={isDeleteConfirmOpen} onClose={() => setIsDeleteConfirmOpen(false)} title="Confirmar Exclusão" size="sm">

@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 interface DataContextType {
   clients: Client[];
   opportunities: Opportunity[];
-  addClient: (clientData: Omit<Client, 'id' | 'createdAt'>) => Promise<void>;
+  addClient: (clientData: Omit<Client, 'id' | 'createdAt'>) => Promise<Client>;
   updateClient: (updatedClient: Client) => Promise<void>;
   deleteClient: (clientId: string) => Promise<void>;
   addOpportunity: (opportunityData: Omit<Opportunity, 'id' | 'createdAt'>) => Promise<void>;
@@ -101,12 +101,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       setOpportunities(transformedOpportunities);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Erro ao carregar dados:', err);
-      setError('Erro ao carregar dados do servidor.');
-      
-      // NÃO usar localStorage como fallback para evitar dados isolados por usuário
-      // Os dados devem sempre vir do Supabase para serem compartilhados
+      setError(`Erro ao carregar dados: ${err.message || 'Erro desconhecido'}`);
     } finally {
       setIsLoading(false);
     }
@@ -116,24 +113,31 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await loadData();
   }, []);
 
-  const addClient = useCallback(async (clientData: Omit<Client, 'id' | 'createdAt'>) => {
+  const addClient = useCallback(async (clientData: Omit<Client, 'id' | 'createdAt'>): Promise<Client> => {
     try {
       setError(null);
       console.log('🔄 Adicionando cliente:', clientData.nomeCompleto);
       
+      // Validate required fields
+      if (!clientData.nomeCompleto?.trim()) {
+        throw new Error('Nome completo é obrigatório');
+      }
+      
       // Transform app format to database format
       const dbClient = {
-        nome_completo: clientData.nomeCompleto,
-        email: clientData.email || null,
-        telefone: clientData.telefone || null,
-        origem: clientData.origem || null,
+        nome_completo: clientData.nomeCompleto.trim(),
+        email: clientData.email?.trim() || null,
+        telefone: clientData.telefone?.trim() || null,
+        origem: clientData.origem?.trim() || null,
         status: clientData.status || 'Novo',
         valor_potencial: clientData.valorPotencial || 0,
-        observacoes: clientData.observacoes || null,
-        cidade: clientData.cidade || null,
-        estado: clientData.estado || null,
-        created_by: clientData.createdBy || null
+        observacoes: clientData.observacoes?.trim() || null,
+        cidade: clientData.cidade?.trim() || null,
+        estado: clientData.estado?.trim() || null,
+        created_by: clientData.createdBy?.trim() || null
       };
+
+      console.log('📤 Enviando dados para Supabase:', dbClient);
 
       const { data, error } = await supabase
         .from('clients')
@@ -143,7 +147,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (error) {
         console.error('❌ Erro ao inserir cliente:', error);
-        throw error;
+        
+        // Handle specific errors
+        if (error.code === '23505') {
+          throw new Error('Cliente com este email já existe');
+        } else if (error.message.includes('permission') || error.message.includes('policy')) {
+          throw new Error('Você não tem permissão para criar clientes');
+        } else {
+          throw new Error(`Erro do banco de dados: ${error.message}`);
+        }
+      }
+
+      if (!data) {
+        throw new Error('Nenhum dado retornado após inserção');
       }
 
       console.log('✅ Cliente inserido com sucesso:', data);
@@ -167,10 +183,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Atualizar estado local
       setClients(prev => [newClient, ...prev]);
 
-    } catch (err) {
+      return newClient;
+
+    } catch (err: any) {
       console.error('❌ Erro ao adicionar cliente:', err);
-      setError('Erro ao adicionar cliente. Tente novamente.');
-      throw err;
+      const errorMessage = err.message || 'Erro desconhecido ao adicionar cliente';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
   }, []);
 
@@ -179,18 +198,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setError(null);
       console.log('🔄 Atualizando cliente:', updatedClient.nomeCompleto);
       
+      // Validate required fields
+      if (!updatedClient.nomeCompleto?.trim()) {
+        throw new Error('Nome completo é obrigatório');
+      }
+      
       // Transform app format to database format
       const dbClient = {
-        nome_completo: updatedClient.nomeCompleto,
-        email: updatedClient.email || null,
-        telefone: updatedClient.telefone || null,
-        origem: updatedClient.origem || null,
+        nome_completo: updatedClient.nomeCompleto.trim(),
+        email: updatedClient.email?.trim() || null,
+        telefone: updatedClient.telefone?.trim() || null,
+        origem: updatedClient.origem?.trim() || null,
         status: updatedClient.status,
         valor_potencial: updatedClient.valorPotencial,
-        observacoes: updatedClient.observacoes || null,
-        cidade: updatedClient.cidade || null,
-        estado: updatedClient.estado || null,
-        created_by: updatedClient.createdBy || null
+        observacoes: updatedClient.observacoes?.trim() || null,
+        cidade: updatedClient.cidade?.trim() || null,
+        estado: updatedClient.estado?.trim() || null,
+        created_by: updatedClient.createdBy?.trim() || null
       };
 
       const { error } = await supabase
@@ -200,7 +224,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (error) {
         console.error('❌ Erro ao atualizar cliente:', error);
-        throw error;
+        
+        if (error.message.includes('permission') || error.message.includes('policy')) {
+          throw new Error('Você não tem permissão para atualizar clientes');
+        } else {
+          throw new Error(`Erro do banco de dados: ${error.message}`);
+        }
       }
 
       console.log('✅ Cliente atualizado com sucesso');
@@ -208,10 +237,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Atualizar estado local
       setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Erro ao atualizar cliente:', err);
-      setError('Erro ao atualizar cliente. Tente novamente.');
-      throw err;
+      const errorMessage = err.message || 'Erro desconhecido ao atualizar cliente';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
   }, []);
 
@@ -227,7 +257,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (error) {
         console.error('❌ Erro ao excluir cliente:', error);
-        throw error;
+        
+        if (error.message.includes('permission') || error.message.includes('policy')) {
+          throw new Error('Você não tem permissão para excluir clientes');
+        } else {
+          throw new Error(`Erro do banco de dados: ${error.message}`);
+        }
       }
 
       console.log('✅ Cliente excluído com sucesso');
@@ -235,10 +270,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Atualizar estado local
       setClients(prev => prev.filter(c => c.id !== clientId));
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Erro ao excluir cliente:', err);
-      setError('Erro ao excluir cliente. Tente novamente.');
-      throw err;
+      const errorMessage = err.message || 'Erro desconhecido ao excluir cliente';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
   }, []);
 
@@ -287,10 +323,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Atualizar estado local
       setOpportunities(prev => [newOpportunity, ...prev]);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Erro ao adicionar oportunidade:', err);
-      setError('Erro ao adicionar oportunidade. Tente novamente.');
-      throw err;
+      const errorMessage = err.message || 'Erro desconhecido ao adicionar oportunidade';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
   }, []);
 
@@ -325,10 +362,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Atualizar estado local
       setOpportunities(prev => prev.map(o => o.id === updatedOpportunity.id ? updatedOpportunity : o));
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Erro ao atualizar oportunidade:', err);
-      setError('Erro ao atualizar oportunidade. Tente novamente.');
-      throw err;
+      const errorMessage = err.message || 'Erro desconhecido ao atualizar oportunidade';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
   }, []);
 

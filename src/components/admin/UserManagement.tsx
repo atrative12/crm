@@ -27,6 +27,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
   const [registrationToDelete, setRegistrationToDelete] = useState<UserRegistration | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -112,15 +113,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       setApprovedUsers(transformedUsers);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Erro geral ao carregar dados:', error);
+      alert(`Erro ao carregar dados: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleApproveUser = async (registration: UserRegistration) => {
+    if (isProcessing) return;
+    
     try {
+      setIsProcessing(true);
       console.log('🔄 Iniciando aprovação do usuário:', registration.username);
       console.log('👤 Administrador logado:', currentUser);
 
@@ -152,7 +157,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
         return;
       }
 
-      // Tentar inserir na tabela approved_users usando service_role
+      // Check if user already exists in approved_users
+      const { data: existingUser, error: existingError } = await supabase
+        .from('approved_users')
+        .select('id')
+        .eq('username', registration.username)
+        .single();
+
+      if (existingUser) {
+        alert('Erro: Este usuário já foi aprovado anteriormente.');
+        return;
+      }
+
+      // Insert into approved_users
       const { data: insertedUser, error: insertError } = await supabase
         .from('approved_users')
         .insert([{
@@ -170,40 +187,34 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
       if (insertError) {
         console.error('❌ Erro ao inserir em approved_users:', insertError);
         
-        // Verificar tipos específicos de erro
         if (insertError.code === '23505') {
           alert('Erro: Este usuário já foi aprovado anteriormente.');
           return;
         }
         
-        if (insertError.message.includes('permission') || insertError.message.includes('policy')) {
-          alert('Erro de permissão: Falha na política RLS. Contacte o administrador do sistema.');
-          return;
-        }
-        
         throw new Error(`Falha na aprovação: ${insertError.message}`);
-      } else {
-        console.log('✅ Usuário inserido em approved_users:', insertedUser);
+      }
 
-        // Atualizar o status da registration
-        const { error: updateError } = await supabase
-          .from('user_registrations')
-          .update({
-            status: 'approved',
-            approved_at: new Date().toISOString(),
-            approved_by: currentUser
-          })
-          .eq('id', registration.id);
+      console.log('✅ Usuário inserido em approved_users:', insertedUser);
 
-        if (updateError) {
-          console.error('❌ Erro ao atualizar registration:', updateError);
-          console.log('⚠️ Usuário foi criado mas status da registration não foi atualizado');
-        }
+      // Update registration status
+      const { error: updateError } = await supabase
+        .from('user_registrations')
+        .update({
+          status: 'approved',
+          approved_at: new Date().toISOString(),
+          approved_by: currentUser
+        })
+        .eq('id', registration.id);
+
+      if (updateError) {
+        console.error('❌ Erro ao atualizar registration:', updateError);
+        console.log('⚠️ Usuário foi criado mas status da registration não foi atualizado');
       }
 
       console.log('✅ Aprovação concluída com sucesso');
 
-      // Recarregar dados
+      // Reload data
       await loadData();
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
@@ -213,11 +224,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     } catch (error: any) {
       console.error('❌ Erro geral na aprovação:', error);
       alert(`❌ Erro ao aprovar usuário: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleRejectUser = async (registration: UserRegistration, reason: string) => {
+    if (isProcessing) return;
+    
     try {
+      setIsProcessing(true);
       console.log('🔄 Rejeitando usuário:', registration.username);
 
       const { error } = await supabase
@@ -245,6 +261,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     } catch (error: any) {
       console.error('❌ Erro ao rejeitar usuário:', error);
       alert(`❌ Erro ao rejeitar usuário: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -254,9 +272,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
   };
 
   const handleConfirmDeleteRegistration = async () => {
-    if (!registrationToDelete) return;
+    if (!registrationToDelete || isProcessing) return;
 
     try {
+      setIsProcessing(true);
       console.log('🔄 Excluindo solicitação de cadastro:', registrationToDelete.username);
 
       const { error } = await supabase
@@ -280,6 +299,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
     } catch (error: any) {
       console.error('❌ Erro ao excluir solicitação:', error);
       alert(`❌ Erro ao excluir solicitação: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -499,6 +520,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                             setSelectedRegistration(registration);
                             setIsDetailModalOpen(true);
                           }}
+                          disabled={isProcessing}
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
@@ -509,9 +531,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                             setSelectedRegistration(registration);
                             setIsApprovalModalOpen(true);
                           }}
+                          disabled={isProcessing}
+                          isLoading={isProcessing && selectedRegistration?.id === registration.id}
                         >
                           <UserCheck className="w-4 h-4 mr-1" />
-                          Aprovar
+                          {isProcessing && selectedRegistration?.id === registration.id ? 'Processando...' : 'Aprovar'}
                         </Button>
                       </div>
                     </div>
@@ -551,6 +575,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                             size="sm"
                             onClick={() => handleDeleteRegistration(registration)}
                             className="text-danger-600 hover:text-danger-700 hover:bg-danger-50 dark:hover:bg-danger-900/20"
+                            disabled={isProcessing}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -720,7 +745,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       <Modal
         isOpen={isApprovalModalOpen}
-        onClose={() => setIsApprovalModalOpen(false)}
+        onClose={() => !isProcessing && setIsApprovalModalOpen(false)}
         title="Processar Solicitação"
         size="md"
       >
@@ -748,10 +773,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
               <Button
                 variant="success"
                 onClick={() => handleApproveUser(selectedRegistration)}
+                disabled={isProcessing}
+                isLoading={isProcessing}
                 className="flex-1"
               >
                 <UserCheck className="w-4 h-4 mr-2" />
-                Aprovar Usuário
+                {isProcessing ? 'Aprovando...' : 'Aprovar Usuário'}
               </Button>
             </div>
 
@@ -764,16 +791,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
                 onChange={(e) => setRejectionReason(e.target.value)}
                 placeholder="Digite o motivo da rejeição..."
                 rows={3}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                disabled={isProcessing}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:opacity-50"
               />
               <Button
                 variant="danger"
                 onClick={() => handleRejectUser(selectedRegistration, rejectionReason)}
-                disabled={!rejectionReason.trim()}
+                disabled={!rejectionReason.trim() || isProcessing}
+                isLoading={isProcessing}
                 className="mt-3 w-full"
               >
                 <UserX className="w-4 h-4 mr-2" />
-                Rejeitar Solicitação
+                {isProcessing ? 'Rejeitando...' : 'Rejeitar Solicitação'}
               </Button>
             </div>
           </div>
@@ -782,7 +811,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
 
       <Modal
         isOpen={isDeleteRegistrationModalOpen}
-        onClose={() => setIsDeleteRegistrationModalOpen(false)}
+        onClose={() => !isProcessing && setIsDeleteRegistrationModalOpen(false)}
         title="Confirmar Exclusão"
         size="sm"
       >
@@ -806,15 +835,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
             <Button
               variant="ghost"
               onClick={() => setIsDeleteRegistrationModalOpen(false)}
+              disabled={isProcessing}
             >
               Cancelar
             </Button>
             <Button
               variant="danger"
               onClick={handleConfirmDeleteRegistration}
+              disabled={isProcessing}
+              isLoading={isProcessing}
             >
               <Trash2 className="w-4 h-4 mr-2" />
-              Excluir Permanentemente
+              {isProcessing ? 'Excluindo...' : 'Excluir Permanentemente'}
             </Button>
           </div>
         </div>
