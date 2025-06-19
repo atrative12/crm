@@ -117,6 +117,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       setError(null);
       console.log('🔄 Adicionando cliente:', clientData.nomeCompleto);
+      console.log('📤 Dados completos:', clientData);
       
       // Validate required fields
       if (!clientData.nomeCompleto?.trim()) {
@@ -139,6 +140,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       console.log('📤 Enviando dados para Supabase:', dbClient);
 
+      // Try with explicit table access
       const { data, error } = await supabase
         .from('clients')
         .insert([dbClient])
@@ -146,13 +148,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .single();
 
       if (error) {
-        console.error('❌ Erro ao inserir cliente:', error);
+        console.error('❌ Erro detalhado do Supabase:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         
         // Handle specific errors
         if (error.code === '23505') {
           throw new Error('Cliente com este email já existe');
         } else if (error.message.includes('permission') || error.message.includes('policy')) {
-          throw new Error('Você não tem permissão para criar clientes');
+          throw new Error('Erro de permissão. Tentando novamente...');
+        } else if (error.code === '42501') {
+          throw new Error('Erro de permissão no banco de dados');
         } else {
           throw new Error(`Erro do banco de dados: ${error.message}`);
         }
