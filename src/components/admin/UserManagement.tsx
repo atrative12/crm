@@ -1,19 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, UserCheck, UserX, Clock, Mail, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { Users, UserCheck, UserX, Clock, Mail, CheckCircle, XCircle, Eye, Settings, Shield } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
+import { UserPermissions } from './UserPermissions';
 import { supabase } from '../../lib/supabase';
 import { UserRegistration, ApprovedUser } from '../../types';
 
-export const UserManagement: React.FC = () => {
+interface UserManagementProps {
+  currentUser: string;
+}
+
+export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
   const [registrations, setRegistrations] = useState<UserRegistration[]>([]);
   const [approvedUsers, setApprovedUsers] = useState<ApprovedUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRegistration, setSelectedRegistration] = useState<UserRegistration | null>(null);
+  const [selectedUser, setSelectedUser] = useState<ApprovedUser | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
 
@@ -78,14 +85,8 @@ export const UserManagement: React.FC = () => {
 
   const handleApproveUser = async (registration: UserRegistration) => {
     try {
-      // Get current user to check if they're admin
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Use service role client for admin operations
-      const { data, error: insertError } = await supabase
+      // Insert into approved_users
+      const { error: insertError } = await supabase
         .from('approved_users')
         .insert([{
           username: registration.username,
@@ -93,13 +94,9 @@ export const UserManagement: React.FC = () => {
           password_hash: registration.passwordHash,
           full_name: registration.fullName,
           role: 'user'
-        }])
-        .select();
+        }]);
 
-      if (insertError) {
-        console.error('Insert error:', insertError);
-        throw insertError;
-      }
+      if (insertError) throw insertError;
 
       // Update registration status
       const { error: updateError } = await supabase
@@ -107,14 +104,11 @@ export const UserManagement: React.FC = () => {
         .update({
           status: 'approved',
           approved_at: new Date().toISOString(),
-          approved_by: user.email || 'admin'
+          approved_by: currentUser
         })
         .eq('id', registration.id);
 
-      if (updateError) {
-        console.error('Update error:', updateError);
-        throw updateError;
-      }
+      if (updateError) throw updateError;
 
       // Reload data
       await loadData();
@@ -123,7 +117,6 @@ export const UserManagement: React.FC = () => {
 
     } catch (error) {
       console.error('Error approving user:', error);
-      // Show user-friendly error message
       alert('Erro ao aprovar usuário. Verifique se você tem permissões de administrador.');
     }
   };
@@ -140,7 +133,6 @@ export const UserManagement: React.FC = () => {
 
       if (error) throw error;
 
-      // Reload data
       await loadData();
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
@@ -164,6 +156,11 @@ export const UserManagement: React.FC = () => {
     } catch (error) {
       console.error('Error toggling user status:', error);
     }
+  };
+
+  const handleManagePermissions = (user: ApprovedUser) => {
+    setSelectedUser(user);
+    setIsPermissionsModalOpen(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -207,7 +204,7 @@ export const UserManagement: React.FC = () => {
             Gerenciamento de Usuários
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Gerencie solicitações de cadastro e usuários aprovados
+            Gerencie solicitações de cadastro, usuários aprovados e permissões
           </p>
         </div>
       </motion.div>
@@ -448,7 +445,7 @@ export const UserManagement: React.FC = () => {
                               ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400'
                               : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
                           }`}>
-                            {user.role}
+                            {user.role === 'admin' ? 'Admin' : 'Usuário'}
                           </span>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
@@ -466,6 +463,15 @@ export const UserManagement: React.FC = () => {
                       </div>
                       <div className="flex gap-2">
                         <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleManagePermissions(user)}
+                          className="flex items-center gap-1"
+                        >
+                          <Shield className="w-4 h-4" />
+                          Permissões
+                        </Button>
+                        <Button
                           variant={user.isActive ? "warning" : "success"}
                           size="sm"
                           onClick={() => handleToggleUserStatus(user)}
@@ -482,7 +488,7 @@ export const UserManagement: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Detail Modal */}
+      {/* Modals */}
       <Modal
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
@@ -538,7 +544,6 @@ export const UserManagement: React.FC = () => {
         )}
       </Modal>
 
-      {/* Approval Modal */}
       <Modal
         isOpen={isApprovalModalOpen}
         onClose={() => setIsApprovalModalOpen(false)}
@@ -589,6 +594,21 @@ export const UserManagement: React.FC = () => {
               </Button>
             </div>
           </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => setIsPermissionsModalOpen(false)}
+        title="Gerenciar Permissões"
+        size="lg"
+      >
+        {selectedUser && (
+          <UserPermissions
+            user={selectedUser}
+            currentUser={currentUser}
+            onClose={() => setIsPermissionsModalOpen(false)}
+          />
         )}
       </Modal>
     </div>

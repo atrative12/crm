@@ -34,18 +34,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setError('');
 
     try {
-      // First check hardcoded users for demo
-      const validUsers = {
-        'Victor': 'Club@380',
-        'Guilherme': 'Club@380',
-        'admin': 'Club@380'
-      };
-
-      if (validUsers[username as keyof typeof validUsers] === password) {
-        onLogin(username);
-        return;
-      }
-
       // Check database for approved users
       const passwordHash = await hashPassword(password);
       
@@ -174,7 +162,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           </div>
 
           <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-            <p>Usuários de demonstração:</p>
+            <p>Usuários administradores:</p>
             <p>Victor / Guilherme (senha: Club@380)</p>
           </div>
         </Card>

@@ -79,3 +79,77 @@ export interface ApprovedUser {
   createdAt: string;
   lastLogin?: string;
 }
+
+export interface UserPermission {
+  id: string;
+  userId: string;
+  permissionName: string;
+  granted: boolean;
+  grantedBy?: string;
+  grantedAt?: string;
+  createdAt: string;
+}
+
+export interface Permission {
+  name: string;
+  label: string;
+  description: string;
+  category: string;
+}
+
+export const AVAILABLE_PERMISSIONS: Permission[] = [
+  {
+    name: 'view_dashboard',
+    label: 'Ver Dashboard',
+    description: 'Acesso ao painel principal com métricas e gráficos',
+    category: 'Visualização'
+  },
+  {
+    name: 'manage_clients',
+    label: 'Gerenciar Clientes',
+    description: 'Criar, editar e excluir clientes',
+    category: 'Clientes'
+  },
+  {
+    name: 'manage_opportunities',
+    label: 'Gerenciar Oportunidades',
+    description: 'Criar, editar e mover oportunidades no pipeline',
+    category: 'Vendas'
+  },
+  {
+    name: 'manage_tasks',
+    label: 'Gerenciar Tarefas',
+    description: 'Criar, editar e concluir tarefas',
+    category: 'Produtividade'
+  },
+  {
+    name: 'manage_meetings',
+    label: 'Gerenciar Reuniões',
+    description: 'Agendar, editar e cancelar reuniões',
+    category: 'Produtividade'
+  },
+  {
+    name: 'view_whatsapp',
+    label: 'WhatsApp',
+    description: 'Acesso ao módulo de WhatsApp Business',
+    category: 'Comunicação'
+  },
+  {
+    name: 'manage_ai_agents',
+    label: 'Agentes de IA',
+    description: 'Configurar e gerenciar agentes de inteligência artificial',
+    category: 'Automação'
+  },
+  {
+    name: 'view_reports',
+    label: 'Relatórios',
+    description: 'Visualizar relatórios e análises',
+    category: 'Relatórios'
+  },
+  {
+    name: 'export_data',
+    label: 'Exportar Dados',
+    description: 'Exportar dados em PDF e outros formatos',
+    category: 'Relatórios'
+  }
+];

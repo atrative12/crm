@@ -47,7 +47,7 @@ function App() {
       case 'ai-agents':
         return <AiAgentsManagement />;
       case 'user-management':
-        return <UserManagement />;
+        return <UserManagement currentUser={currentUser} />;
       default:
         return <Dashboard />;
     }
