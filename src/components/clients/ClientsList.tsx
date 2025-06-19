@@ -85,6 +85,7 @@ export const ClientsList: React.FC<ClientsListProps> = ({ currentUser }) => {
       setSelectedClient(null);
     } catch (error) {
       console.error('Erro ao salvar cliente:', error);
+      alert('Erro ao salvar cliente. Tente novamente.');
     }
   };
 

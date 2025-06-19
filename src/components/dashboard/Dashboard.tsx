@@ -71,7 +71,78 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser }) => {
         try {
             setIsLoadingUsers(true);
 
-            // Load current user data
+            // Primeiro verificar se é admin
+            const { data: adminData, error: adminError } = await supabase
+                .from('admin_users')
+                .select('*')
+                .eq('username', currentUser)
+                .eq('is_active', true);
+
+            if (!adminError && adminData && adminData.length > 0) {
+                // É um admin
+                const admin = adminData[0];
+                const adminUserData: ApprovedUser = {
+                    id: admin.id,
+                    username: admin.username,
+                    email: admin.email,
+                    fullName: admin.full_name,
+                    role: 'admin',
+                    userRole: {
+                        id: 'admin-role',
+                        name: 'admin',
+                        displayName: 'Administrador',
+                        level: 3,
+                        permissions: [],
+                        createdAt: ''
+                    },
+                    isActive: admin.is_active,
+                    createdAt: admin.created_at,
+                    lastLogin: admin.last_login
+                };
+
+                setCurrentUserData(adminUserData);
+
+                // Load all users for assignment
+                const { data: usersData, error: usersError } = await supabase
+                    .from('approved_users')
+                    .select(`
+                        *,
+                        user_roles (
+                            id,
+                            name,
+                            display_name,
+                            level
+                        )
+                    `)
+                    .eq('is_active', true)
+                    .order('full_name');
+
+                if (!usersError && usersData) {
+                    const transformedUsers: ApprovedUser[] = usersData.map(user => ({
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        fullName: user.full_name,
+                        role: user.role,
+                        roleId: user.role_id,
+                        userRole: user.user_roles ? {
+                            id: user.user_roles.id,
+                            name: user.user_roles.name,
+                            displayName: user.user_roles.display_name,
+                            level: user.user_roles.level,
+                            permissions: [],
+                            createdAt: ''
+                        } : undefined,
+                        isActive: user.is_active,
+                        createdAt: user.created_at
+                    }));
+
+                    setUsers(transformedUsers);
+                }
+                return;
+            }
+
+            // Se não é admin, verificar na tabela de usuários aprovados
             const { data: userData, error: userError } = await supabase
                 .from('approved_users')
                 .select(`
@@ -191,7 +262,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser }) => {
     };
 
     const canManageTickets = () => {
-        return currentUserData?.userRole?.level && currentUserData.userRole.level >= 2;
+        // Verificar se é admin (Victor ou Guilherme) ou se tem nível >= 2
+        const isAdmin = currentUser === 'Victor' || currentUser === 'Guilherme';
+        const hasManagerLevel = currentUserData?.userRole?.level && currentUserData.userRole.level >= 2;
+        
+        return isAdmin || hasManagerLevel;
     };
 
     const statsData = useMemo(() => {
@@ -270,6 +345,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser }) => {
                                 </span>
                             )}
                         </p>
+                        {currentUserData && (
+                            <div className="mt-2 text-sm text-blue-600 dark:text-blue-400">
+                                👤 <strong>{currentUserData.fullName}</strong> ({currentUserData.userRole?.displayName || 'Usuário'})
+                            </div>
+                        )}
                     </div>
                     {currentUser && canManageTickets() && (
                         <Button 
