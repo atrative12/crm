@@ -98,8 +98,25 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
   const handleApproveUser = async (registration: UserRegistration) => {
     try {
       console.log('🔄 Iniciando aprovação do usuário:', registration.username);
+      console.log('👤 Administrador logado:', currentUser);
 
-      // Primeiro, tentar inserir na tabela approved_users
+      // Verificar se o usuário atual é administrador
+      const { data: adminCheck, error: adminError } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('username', currentUser)
+        .eq('is_active', true)
+        .single();
+
+      if (adminError || !adminCheck) {
+        console.error('❌ Usuário não é administrador:', adminError);
+        alert('Erro: Você não tem permissões de administrador para aprovar usuários.');
+        return;
+      }
+
+      console.log('✅ Verificação de administrador OK:', adminCheck.username);
+
+      // Tentar inserir na tabela approved_users usando service_role
       const { data: insertedUser, error: insertError } = await supabase
         .from('approved_users')
         .insert([{
@@ -107,7 +124,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
           email: registration.email,
           password_hash: registration.passwordHash,
           full_name: registration.fullName,
-          role: 'user'
+          role: 'user',
+          is_active: true
         }])
         .select()
         .single();
@@ -115,37 +133,52 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
       if (insertError) {
         console.error('❌ Erro ao inserir em approved_users:', insertError);
         
-        // Verificar se é erro de duplicata
+        // Verificar tipos específicos de erro
         if (insertError.code === '23505') {
           alert('Erro: Este usuário já foi aprovado anteriormente.');
           return;
         }
         
-        // Verificar se é erro de permissão
         if (insertError.message.includes('permission') || insertError.message.includes('policy')) {
-          alert('Erro de permissão: Você não tem autorização para aprovar usuários. Verifique se você está logado como administrador.');
+          alert('Erro de permissão: Falha na política RLS. Contacte o administrador do sistema.');
           return;
         }
         
-        throw insertError;
-      }
+        // Tentar uma abordagem alternativa usando RPC
+        console.log('🔄 Tentando abordagem alternativa com RPC...');
+        
+        const { data: rpcResult, error: rpcError } = await supabase.rpc('approve_user_registration', {
+          p_username: registration.username,
+          p_email: registration.email,
+          p_password_hash: registration.passwordHash,
+          p_full_name: registration.fullName,
+          p_registration_id: registration.id,
+          p_approved_by: currentUser
+        });
 
-      console.log('✅ Usuário inserido em approved_users:', insertedUser);
+        if (rpcError) {
+          console.error('❌ Erro no RPC:', rpcError);
+          throw new Error(`Falha na aprovação: ${rpcError.message}`);
+        }
 
-      // Atualizar o status da registration
-      const { error: updateError } = await supabase
-        .from('user_registrations')
-        .update({
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-          approved_by: currentUser
-        })
-        .eq('id', registration.id);
+        console.log('✅ Aprovação via RPC bem-sucedida:', rpcResult);
+      } else {
+        console.log('✅ Usuário inserido em approved_users:', insertedUser);
 
-      if (updateError) {
-        console.error('❌ Erro ao atualizar registration:', updateError);
-        // Não falhar aqui, pois o usuário já foi criado
-        console.log('⚠️ Usuário foi criado mas status da registration não foi atualizado');
+        // Atualizar o status da registration
+        const { error: updateError } = await supabase
+          .from('user_registrations')
+          .update({
+            status: 'approved',
+            approved_at: new Date().toISOString(),
+            approved_by: currentUser
+          })
+          .eq('id', registration.id);
+
+        if (updateError) {
+          console.error('❌ Erro ao atualizar registration:', updateError);
+          console.log('⚠️ Usuário foi criado mas status da registration não foi atualizado');
+        }
       }
 
       console.log('✅ Aprovação concluída com sucesso');
@@ -155,11 +188,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
       setIsApprovalModalOpen(false);
       setSelectedRegistration(null);
 
-      alert('Usuário aprovado com sucesso!');
+      alert('✅ Usuário aprovado com sucesso!');
 
     } catch (error) {
       console.error('❌ Erro geral na aprovação:', error);
-      alert(`Erro ao aprovar usuário: ${error.message || 'Erro desconhecido'}`);
+      alert(`❌ Erro ao aprovar usuário: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -187,11 +220,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) =
       setSelectedRegistration(null);
       setRejectionReason('');
 
-      alert('Usuário rejeitado com sucesso!');
+      alert('✅ Usuário rejeitado com sucesso!');
 
     } catch (error) {
       console.error('❌ Erro ao rejeitar usuário:', error);
-      alert(`Erro ao rejeitar usuário: ${error.message || 'Erro desconhecido'}`);
+      alert(`❌ Erro ao rejeitar usuário: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
