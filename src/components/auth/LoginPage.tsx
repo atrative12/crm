@@ -37,18 +37,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       // Check database for approved users
       const passwordHash = await hashPassword(password);
       
-      const { data: user, error: dbError } = await supabase
+      console.log('Tentando login com:', { username, passwordHash });
+      
+      const { data: users, error: dbError } = await supabase
         .from('approved_users')
         .select('*')
         .eq('username', username)
         .eq('password_hash', passwordHash)
-        .eq('is_active', true)
-        .maybeSingle();
+        .eq('is_active', true);
 
-      if (dbError || !user) {
+      console.log('Resultado da consulta:', { users, dbError });
+
+      if (dbError) {
+        console.error('Erro na consulta:', dbError);
+        setError('Erro ao verificar credenciais.');
+        return;
+      }
+
+      if (!users || users.length === 0) {
         setError('Login ou senha inválidos.');
         return;
       }
+
+      const user = users[0];
 
       // Update last login
       await supabase
