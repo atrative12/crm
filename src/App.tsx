@@ -1,4 +1,4 @@
-import { useState } from 'react'; // 'React' foi removido da importação
+import { useState, useEffect } from 'react'; // 'React' foi removido da importação
 import { motion, AnimatePresence } from 'framer-motion';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { FirebaseProvider } from './contexts/FirebaseContext';
@@ -19,17 +19,42 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Verificar se há uma sessão salva ao carregar a aplicação
+  useEffect(() => {
+    const savedAuth = localStorage.getItem('crm_auth');
+    const savedUser = localStorage.getItem('crm_current_user');
+    
+    if (savedAuth === 'true' && savedUser) {
+      console.log('🔄 Restaurando sessão salva para:', savedUser);
+      setIsAuthenticated(true);
+      setCurrentUser(savedUser);
+    }
+    
+    setIsLoading(false);
+  }, []);
 
   const handleLogin = (username: string) => {
+    console.log('✅ Login realizado para:', username);
     setIsAuthenticated(true);
     setCurrentUser(username);
+    
+    // Salvar a sessão no localStorage
+    localStorage.setItem('crm_auth', 'true');
+    localStorage.setItem('crm_current_user', username);
   };
 
   const handleLogout = () => {
+    console.log('🔄 Fazendo logout...');
     setIsAuthenticated(false);
     setCurrentUser('');
     setActiveView('dashboard');
     setIsSidebarOpen(false);
+    
+    // Limpar a sessão do localStorage
+    localStorage.removeItem('crm_auth');
+    localStorage.removeItem('crm_current_user');
   };
 
   const renderContent = () => {
@@ -52,6 +77,18 @@ function App() {
         return <Dashboard />;
     }
   };
+
+  // Mostrar loading enquanto verifica a sessão
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ThemeProvider>
