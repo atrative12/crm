@@ -12,6 +12,7 @@ interface DataContextType {
   updateOpportunity: (updatedOpportunity: Opportunity) => Promise<void>;
   isLoading: boolean;
   error: string | null;
+  refreshData: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -39,6 +40,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       setIsLoading(true);
       setError(null);
+      console.log('🔄 Carregando dados do Supabase...');
 
       // Load clients
       const { data: clientsData, error: clientsError } = await supabase
@@ -46,7 +48,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (clientsError) throw clientsError;
+      if (clientsError) {
+        console.error('❌ Erro ao carregar clientes:', clientsError);
+        throw clientsError;
+      }
+
+      console.log('✅ Clientes carregados:', clientsData?.length || 0);
 
       // Transform database format to app format
       const transformedClients: Client[] = (clientsData || []).map(client => ({
@@ -72,7 +79,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (opportunitiesError) throw opportunitiesError;
+      if (opportunitiesError) {
+        console.error('❌ Erro ao carregar oportunidades:', opportunitiesError);
+        throw opportunitiesError;
+      }
+
+      console.log('✅ Oportunidades carregadas:', opportunitiesData?.length || 0);
 
       // Transform database format to app format
       const transformedOpportunities: Opportunity[] = (opportunitiesData || []).map(opp => ({
@@ -90,40 +102,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setOpportunities(transformedOpportunities);
 
     } catch (err) {
-      console.error('Error loading data:', err);
-      setError('Erro ao carregar dados. Usando dados locais como fallback.');
+      console.error('❌ Erro ao carregar dados:', err);
+      setError('Erro ao carregar dados do servidor.');
       
-      // Fallback to localStorage
-      try {
-        const savedClients = localStorage.getItem('crm_clients');
-        if (savedClients) setClients(JSON.parse(savedClients));
-
-        const savedOpportunities = localStorage.getItem('crm_opportunities');
-        if (savedOpportunities) setOpportunities(JSON.parse(savedOpportunities));
-      } catch (localError) {
-        console.error("Failed to parse data from localStorage", localError);
-      }
+      // NÃO usar localStorage como fallback para evitar dados isolados por usuário
+      // Os dados devem sempre vir do Supabase para serem compartilhados
     } finally {
       setIsLoading(false);
     }
   };
 
+  const refreshData = useCallback(async () => {
+    await loadData();
+  }, []);
+
   const addClient = useCallback(async (clientData: Omit<Client, 'id' | 'createdAt'>) => {
     try {
       setError(null);
+      console.log('🔄 Adicionando cliente:', clientData.nomeCompleto);
       
       // Transform app format to database format
       const dbClient = {
         nome_completo: clientData.nomeCompleto,
-        email: clientData.email,
-        telefone: clientData.telefone,
-        origem: clientData.origem,
+        email: clientData.email || null,
+        telefone: clientData.telefone || null,
+        origem: clientData.origem || null,
         status: clientData.status || 'Novo',
         valor_potencial: clientData.valorPotencial || 0,
-        observacoes: clientData.observacoes,
-        cidade: clientData.cidade,
-        estado: clientData.estado,
-        created_by: clientData.createdBy
+        observacoes: clientData.observacoes || null,
+        cidade: clientData.cidade || null,
+        estado: clientData.estado || null,
+        created_by: clientData.createdBy || null
       };
 
       const { data, error } = await supabase
@@ -132,7 +141,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao inserir cliente:', error);
+        throw error;
+      }
+
+      console.log('✅ Cliente inserido com sucesso:', data);
 
       // Transform back to app format
       const newClient: Client = {
@@ -150,48 +164,33 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         createdBy: data.created_by || ''
       };
 
+      // Atualizar estado local
       setClients(prev => [newClient, ...prev]);
-      
-      // Also save to localStorage as backup
-      const updated = [newClient, ...clients];
-      localStorage.setItem('crm_clients', JSON.stringify(updated));
 
     } catch (err) {
-      console.error('Error adding client:', err);
-      setError('Erro ao adicionar cliente. Salvando localmente.');
-      
-      // Fallback to localStorage
-      const newClient: Client = {
-        ...clientData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-        status: clientData.status || 'Novo',
-      };
-      
-      setClients(prev => {
-        const updated = [newClient, ...prev];
-        localStorage.setItem('crm_clients', JSON.stringify(updated));
-        return updated;
-      });
+      console.error('❌ Erro ao adicionar cliente:', err);
+      setError('Erro ao adicionar cliente. Tente novamente.');
+      throw err;
     }
-  }, [clients]);
+  }, []);
 
   const updateClient = useCallback(async (updatedClient: Client) => {
     try {
       setError(null);
+      console.log('🔄 Atualizando cliente:', updatedClient.nomeCompleto);
       
       // Transform app format to database format
       const dbClient = {
         nome_completo: updatedClient.nomeCompleto,
-        email: updatedClient.email,
-        telefone: updatedClient.telefone,
-        origem: updatedClient.origem,
+        email: updatedClient.email || null,
+        telefone: updatedClient.telefone || null,
+        origem: updatedClient.origem || null,
         status: updatedClient.status,
         valor_potencial: updatedClient.valorPotencial,
-        observacoes: updatedClient.observacoes,
-        cidade: updatedClient.cidade,
-        estado: updatedClient.estado,
-        created_by: updatedClient.createdBy
+        observacoes: updatedClient.observacoes || null,
+        cidade: updatedClient.cidade || null,
+        estado: updatedClient.estado || null,
+        created_by: updatedClient.createdBy || null
       };
 
       const { error } = await supabase
@@ -199,60 +198,54 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .update(dbClient)
         .eq('id', updatedClient.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao atualizar cliente:', error);
+        throw error;
+      }
 
-      setClients(prev => {
-        const updated = prev.map(c => c.id === updatedClient.id ? updatedClient : c);
-        localStorage.setItem('crm_clients', JSON.stringify(updated));
-        return updated;
-      });
+      console.log('✅ Cliente atualizado com sucesso');
+
+      // Atualizar estado local
+      setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
 
     } catch (err) {
-      console.error('Error updating client:', err);
-      setError('Erro ao atualizar cliente. Salvando localmente.');
-      
-      // Fallback to localStorage
-      setClients(prev => {
-        const updated = prev.map(c => c.id === updatedClient.id ? updatedClient : c);
-        localStorage.setItem('crm_clients', JSON.stringify(updated));
-        return updated;
-      });
+      console.error('❌ Erro ao atualizar cliente:', err);
+      setError('Erro ao atualizar cliente. Tente novamente.');
+      throw err;
     }
   }, []);
 
   const deleteClient = useCallback(async (clientId: string) => {
     try {
       setError(null);
+      console.log('🔄 Excluindo cliente:', clientId);
       
       const { error } = await supabase
         .from('clients')
         .delete()
         .eq('id', clientId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao excluir cliente:', error);
+        throw error;
+      }
 
-      setClients(prev => {
-        const updated = prev.filter(c => c.id !== clientId);
-        localStorage.setItem('crm_clients', JSON.stringify(updated));
-        return updated;
-      });
+      console.log('✅ Cliente excluído com sucesso');
+
+      // Atualizar estado local
+      setClients(prev => prev.filter(c => c.id !== clientId));
 
     } catch (err) {
-      console.error('Error deleting client:', err);
-      setError('Erro ao excluir cliente. Removendo localmente.');
-      
-      // Fallback to localStorage
-      setClients(prev => {
-        const updated = prev.filter(c => c.id !== clientId);
-        localStorage.setItem('crm_clients', JSON.stringify(updated));
-        return updated;
-      });
+      console.error('❌ Erro ao excluir cliente:', err);
+      setError('Erro ao excluir cliente. Tente novamente.');
+      throw err;
     }
   }, []);
 
   const addOpportunity = useCallback(async (opportunityData: Omit<Opportunity, 'id' | 'createdAt'>) => {
     try {
       setError(null);
+      console.log('🔄 Adicionando oportunidade:', opportunityData.name);
       
       // Transform app format to database format
       const dbOpportunity = {
@@ -260,8 +253,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         client_name: opportunityData.clientName,
         value: opportunityData.value || 0,
         status: opportunityData.status || 'novo-lead',
-        next_action: opportunityData.nextAction,
-        description: opportunityData.description,
+        next_action: opportunityData.nextAction || null,
+        description: opportunityData.description || null,
         expected_close_date: opportunityData.expectedCloseDate || null
       };
 
@@ -271,7 +264,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao inserir oportunidade:', error);
+        throw error;
+      }
+
+      console.log('✅ Oportunidade inserida com sucesso:', data);
 
       // Transform back to app format
       const newOpportunity: Opportunity = {
@@ -286,34 +284,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         createdAt: data.created_at
       };
 
+      // Atualizar estado local
       setOpportunities(prev => [newOpportunity, ...prev]);
-      
-      // Also save to localStorage as backup
-      const updated = [newOpportunity, ...opportunities];
-      localStorage.setItem('crm_opportunities', JSON.stringify(updated));
 
     } catch (err) {
-      console.error('Error adding opportunity:', err);
-      setError('Erro ao adicionar oportunidade. Salvando localmente.');
-      
-      // Fallback to localStorage
-      const newOpportunity: Opportunity = {
-        ...opportunityData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString()
-      };
-      
-      setOpportunities(prev => {
-        const updated = [newOpportunity, ...prev];
-        localStorage.setItem('crm_opportunities', JSON.stringify(updated));
-        return updated;
-      });
+      console.error('❌ Erro ao adicionar oportunidade:', err);
+      setError('Erro ao adicionar oportunidade. Tente novamente.');
+      throw err;
     }
-  }, [opportunities]);
+  }, []);
 
   const updateOpportunity = useCallback(async (updatedOpportunity: Opportunity) => {
     try {
       setError(null);
+      console.log('🔄 Atualizando oportunidade:', updatedOpportunity.name);
       
       // Transform app format to database format
       const dbOpportunity = {
@@ -321,8 +305,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         client_name: updatedOpportunity.clientName,
         value: updatedOpportunity.value,
         status: updatedOpportunity.status,
-        next_action: updatedOpportunity.nextAction,
-        description: updatedOpportunity.description,
+        next_action: updatedOpportunity.nextAction || null,
+        description: updatedOpportunity.description || null,
         expected_close_date: updatedOpportunity.expectedCloseDate || null
       };
 
@@ -331,24 +315,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .update(dbOpportunity)
         .eq('id', updatedOpportunity.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao atualizar oportunidade:', error);
+        throw error;
+      }
 
-      setOpportunities(prev => {
-        const updated = prev.map(o => o.id === updatedOpportunity.id ? updatedOpportunity : o);
-        localStorage.setItem('crm_opportunities', JSON.stringify(updated));
-        return updated;
-      });
+      console.log('✅ Oportunidade atualizada com sucesso');
+
+      // Atualizar estado local
+      setOpportunities(prev => prev.map(o => o.id === updatedOpportunity.id ? updatedOpportunity : o));
 
     } catch (err) {
-      console.error('Error updating opportunity:', err);
-      setError('Erro ao atualizar oportunidade. Salvando localmente.');
-      
-      // Fallback to localStorage
-      setOpportunities(prev => {
-        const updated = prev.map(o => o.id === updatedOpportunity.id ? updatedOpportunity : o);
-        localStorage.setItem('crm_opportunities', JSON.stringify(updated));
-        return updated;
-      });
+      console.error('❌ Erro ao atualizar oportunidade:', err);
+      setError('Erro ao atualizar oportunidade. Tente novamente.');
+      throw err;
     }
   }, []);
 
@@ -362,8 +342,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     addOpportunity,
     updateOpportunity,
     isLoading,
-    error
-  }), [clients, opportunities, addClient, updateClient, deleteClient, addOpportunity, updateOpportunity, isLoading, error]);
+    error,
+    refreshData
+  }), [clients, opportunities, addClient, updateClient, deleteClient, addOpportunity, updateOpportunity, isLoading, error, refreshData]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
