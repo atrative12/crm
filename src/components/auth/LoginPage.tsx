@@ -160,11 +160,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               Solicitar Cadastro
             </Button>
           </div>
-
-          <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-            <p>Usuários administradores:</p>
-            <p>Victor / Guilherme (senha: Club@380)</p>
-          </div>
         </Card>
       </motion.div>
     </div>
