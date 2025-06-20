@@ -62,13 +62,20 @@ export const UserRoleManagement: React.FC<UserRoleManagementProps> = ({
     try {
       setIsSaving(true);
 
-      const { error } = await supabase
-        .from('approved_users')
-        .update({ role_id: selectedRoleId })
-        .eq('id', user.id);
+      // Use the RPC function to change user role
+      const { data, error } = await supabase.rpc('change_user_role', {
+        p_user_id: user.id,
+        p_new_role_id: selectedRoleId,
+        p_changed_by: 'admin' // You can get this from auth context
+      });
 
       if (error) throw error;
 
+      if (!data.success) {
+        throw new Error(data.error || 'Erro desconhecido');
+      }
+
+      alert(`✅ ${data.message}`);
       onUpdate();
       onClose();
     } catch (error) {
