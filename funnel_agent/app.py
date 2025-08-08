@@ -3,7 +3,8 @@ import re
 from datetime import datetime
 from typing import List, Literal, Optional, Dict, Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
+from flask_cors import CORS
 
 # --------- Data Schema Types (doc only) ---------
 StageLiteral = Literal[
@@ -78,7 +79,11 @@ STAGE_REGEX = [(s, compile_patterns(ps)) for s, ps in STAGE_RULES]
 TIME_URGENCY_REGEX = [(re.compile(p, re.IGNORECASE), lvl) for p, lvl in TIME_URGENCY]
 COMPARE_REGEX = [re.compile(p, re.IGNORECASE) for p in COMPARE_PATTERNS]
 
-# --------- Core Logic ---------
+# --------- App ---------
+app = Flask(__name__)
+CORS(app, resources={r"*": {"origins": "*"}})
+
+# --------- Core Logic (mesmo que antes) ---------
 
 def detect_stage(transcript: str) -> tuple[StageLiteral, float, List[str]]:
     hits = []
@@ -216,8 +221,7 @@ def build_tasks(stage: StageLiteral, decision: DecisionMakerLiteral, complete_di
         tasks.append({"title": "Gerar proposta base e anexar cases", "due_in_hours": 12, "priority": "High"})
     return tasks
 
-app = Flask(__name__)
-
+# --------- Routes ---------
 @app.get("/health")
 def health():
     return jsonify({"status": "ok", "ts": datetime.utcnow().isoformat()})
@@ -293,6 +297,49 @@ def analyze():
         "tags": tags,
     }
     return jsonify(resp)
+
+@app.get("/widget.js")
+def widget_js():
+    api_base = request.host_url.rstrip('/')
+    js = f"""
+(function(){{
+  const css = `#funnel-agent-btn{position:fixed;bottom:20px;right:20px;background:#111;color:#fff;border:none;border-radius:24px;padding:10px 14px;font:14px sans-serif;z-index:2147483647;box-shadow:0 2px 10px rgba(0,0,0,0.2);}#funnel-agent-panel{position:fixed;bottom:70px;right:20px;width:360px;max-height:70vh;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,0.2);overflow:auto;padding:12px;z-index:2147483647;font:13px sans-serif;color:#111}#funnel-agent-panel h3{margin:0 0 8px 0;font-size:14px}#funnel-agent-panel textarea{width:100%;height:120px;margin:6px 0;padding:6px;border:1px solid #ccc;border-radius:6px;resize:vertical}#funnel-agent-panel .row{display:flex;gap:6px}#funnel-agent-panel input{flex:1;padding:6px;border:1px solid #ccc;border-radius:6px}`;
+  const style = document.createElement('style'); style.innerHTML = css; document.head.appendChild(style);
+  const btn = document.createElement('button'); btn.id = 'funnel-agent-btn'; btn.textContent = 'Analisar lead'; document.body.appendChild(btn);
+  const panel = document.createElement('div'); panel.id='funnel-agent-panel'; panel.style.display='none';
+  panel.innerHTML = `
+    <h3>Agente de Funil</h3>
+    <div class="row"><input id="fa-lead-id" placeholder="lead_id"/><input id="fa-segmento" placeholder="segmento"/></div>
+    <div class="row"><input id="fa-empresa" placeholder="tamanho_empresa"/><input id="fa-origem" placeholder="origem"/></div>
+    <textarea id="fa-transcript" placeholder="Cole aqui o transcript...\n(WhatsApp, e-mail, call, chat)"></textarea>
+    <div class="row"><button id="fa-run">Analisar</button><button id="fa-close">Fechar</button></div>
+    <pre id="fa-out" style="white-space:pre-wrap;background:#fafafa;border:1px solid #eee;border-radius:6px;padding:8px;margin-top:8px"></pre>
+  `;
+  document.body.appendChild(panel);
+  btn.onclick = ()=>{ panel.style.display = panel.style.display==='none'?'block':'none'; };
+  panel.querySelector('#fa-close').onclick = ()=>{ panel.style.display='none'; };
+  panel.querySelector('#fa-run').onclick = async ()=>{
+     const lead_id = panel.querySelector('#fa-lead-id').value.trim() || `LEAD-${Date.now()}`;
+     const transcript = panel.querySelector('#fa-transcript').value.trim();
+     const metadata = {
+       segmento: panel.querySelector('#fa-segmento').value.trim(),
+       tamanho_empresa: panel.querySelector('#fa-empresa').value.trim(),
+       origem: panel.querySelector('#fa-origem').value.trim(),
+     };
+     const out = panel.querySelector('#fa-out');
+     out.textContent = 'Analisando...';
+     try{
+       const res = await fetch('{api_base}/analyze', {
+         method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({ lead_id, transcript, metadata })
+       });
+       const data = await res.json();
+       out.textContent = JSON.stringify(data, null, 2);
+     }catch(e){ out.textContent = 'Erro: '+e; }
+  };
+})();
+"""
+    return Response(js, mimetype="application/javascript")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
