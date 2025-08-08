@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import List, Literal, Optional, Dict, Any
 
 from flask import Flask, jsonify, request
+import json
+import requests
+from dotenv import load_dotenv
 
 # --------- Data Schema Types (doc only) ---------
 StageLiteral = Literal[
@@ -63,6 +66,19 @@ TIME_URGENCY = [
 COMPARE_PATTERNS = [r"concorrente", r"fornecedor", r"comparando", r"alternativas", r"or[çc]amentos"]
 
 RE_SUMMARY_CLEAN = re.compile(r"\s+", re.MULTILINE)
+
+load_dotenv()
+
+ZAPI_INSTANCE_ID = os.getenv("Z_API_INSTANCE_ID", "").strip()
+ZAPI_TOKEN = os.getenv("Z_API_TOKEN", "").strip()
+ZAPI_BASE = "https://api.z-api.io"
+
+CRM_BASE_URL = os.getenv("CRM_API_BASE_URL", "").rstrip("/")
+CRM_TOKEN = os.getenv("CRM_API_TOKEN", "").strip()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
 
 def compile_patterns(patterns: List[str]) -> List[re.Pattern]:
@@ -216,6 +232,151 @@ def build_tasks(stage: StageLiteral, decision: DecisionMakerLiteral, complete_di
         tasks.append({"title": "Gerar proposta base e anexar cases", "due_in_hours": 12, "priority": "High"})
     return tasks
 
+def _digits_only(value: str) -> str:
+    return re.sub(r"\D+", "", value or "")
+
+def _ensure_data_dir() -> str:
+    data_dir = os.path.join(os.getcwd(), "var", "data")
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
+
+def log_jsonl(filename: str, record: Dict[str, Any]) -> None:
+    path = os.path.join(_ensure_data_dir(), filename)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+def extract_zapi_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Tenta cobrir formatos comuns de webhook (texto e origem)
+    text = None
+    phone = None
+    sender_name = None
+
+    # Texto
+    candidates = [
+        payload.get("message"),
+        payload.get("body"),
+        payload.get("text"),
+        (payload.get("text") or {}).get("body") if isinstance(payload.get("text"), dict) else None,
+        (payload.get("message") or {}).get("text") if isinstance(payload.get("message"), dict) else None,
+        (((payload.get("messageData") or {}).get("textMessageData") or {}).get("textMessage")) if isinstance(payload.get("messageData"), dict) else None,
+    ]
+    # messages[0]
+    try:
+        if not any(candidates) and isinstance(payload.get("messages"), list) and payload["messages"]:
+            msg0 = payload["messages"][0]
+            text = (msg0.get("text") or {}).get("body") or msg0.get("body") or msg0.get("message")
+            phone = msg0.get("from") or msg0.get("author") or msg0.get("phone")
+            sender_name = msg0.get("pushName") or msg0.get("senderName") or msg0.get("name")
+    except Exception:
+        pass
+
+    if text is None:
+        for c in candidates:
+            if isinstance(c, str) and c.strip():
+                text = c
+                break
+
+    # Telefone
+    if phone is None:
+        phone = payload.get("phone") or payload.get("from") or payload.get("sender") or payload.get("chatId")
+
+    # Extrai somente dígitos se vier no formato 55XXXXXXXX@c.us
+    if isinstance(phone, str):
+        phone_digits = _digits_only(phone)
+    else:
+        phone_digits = ""
+
+    # Nome
+    if sender_name is None:
+        sender_name = payload.get("senderName") or payload.get("pushName") or payload.get("name")
+
+    return {"text": text or "", "phone": phone_digits, "sender_name": sender_name or ""}
+
+def send_whatsapp_message(phone: str, message: str) -> Dict[str, Any]:
+    if not (ZAPI_INSTANCE_ID and ZAPI_TOKEN):
+        return {"skipped": True, "reason": "Z-API não configurada"}
+    url = f"{ZAPI_BASE}/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-message"
+    try:
+        resp = requests.post(url, json={"phone": phone, "message": message}, timeout=20)
+        return {"status_code": resp.status_code, "body": (resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text)}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+def update_crm(lead_id: str, stage: StageLiteral, insights: List[str], tags: List[str], tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    record = {
+        "lead_id": lead_id,
+        "stage": stage,
+        "insights": insights,
+        "tags": tags,
+        "tasks": tasks,
+        "ts": datetime.utcnow().isoformat(),
+    }
+    # Se houver API do CRM configurada, tenta sincronizar
+    if CRM_BASE_URL and CRM_TOKEN:
+        headers = {"Authorization": f"Bearer {CRM_TOKEN}", "Content-Type": "application/json"}
+        results: Dict[str, Any] = {"sent": []}
+        try:
+            r1 = requests.patch(f"{CRM_BASE_URL}/leads/{lead_id}", headers=headers, json={"stage": stage, "insights": insights, "tags": tags}, timeout=20)
+            results["sent"].append({"endpoint": "lead", "code": r1.status_code})
+        except Exception as exc:
+            results.setdefault("errors", []).append({"endpoint": "lead", "error": str(exc)})
+        # Cria tarefas
+        for t in tasks:
+            try:
+                r2 = requests.post(f"{CRM_BASE_URL}/tasks", headers=headers, json={"lead_id": lead_id, **t}, timeout=20)
+                results["sent"].append({"endpoint": "task", "code": r2.status_code})
+            except Exception as exc:
+                results.setdefault("errors", []).append({"endpoint": "task", "error": str(exc)})
+        return results
+    # Caso contrário, log em arquivo local
+    log_jsonl("crm_sync.jsonl", record)
+    return {"logged": True}
+
+def generate_reply(user_text: str, analysis: Dict[str, Any], sender_name: str = "") -> str:
+    # Prompt curto e humano em PT-BR
+    system_prompt = (
+        "Você é um atendente comercial educado e objetivo. Responda em PT-BR, tom humano, curto (<= 2 frases). "
+        "Aja conforme o estágio do funil e intenção do comprador. Se o cliente pedir proposta/demo, avance o próximo passo."
+    )
+    name_part = f"{sender_name}, " if sender_name else ""
+    fallback = f"{name_part}obrigado pela mensagem! Vou te ajudar com isso. Poderia me confirmar rapidamente orçamento, prazo e quem decide?"
+
+    if not OPENAI_API_KEY:
+        return fallback
+
+    try:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": (
+                "Contexto do CRM (JSON):\n" + json.dumps(analysis, ensure_ascii=False) + "\n\n" +
+                "Mensagem do cliente:\n" + user_text + "\n\n" +
+                "Gere uma resposta curta (<= 2 frases), natural e útil."
+            )},
+        ]
+        resp = requests.post(
+            f"{OPENAI_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": LLM_MODEL,
+                "messages": messages,
+                "temperature": 0.4,
+                "max_tokens": 120,
+            },
+            timeout=30,
+        )
+        data = resp.json()
+        content = (
+            (((data or {}).get("choices") or [{}])[0].get("message") or {}).get("content")
+            if isinstance(data, dict) else None
+        )
+        return (content or fallback).strip()
+    except Exception:
+        return fallback
+
+
 app = Flask(__name__)
 
 @app.get("/health")
@@ -293,6 +454,70 @@ def analyze():
         "tags": tags,
     }
     return jsonify(resp)
+
+@app.post("/zapi/webhook")
+def zapi_webhook():
+    # Recebe eventos do Z-API e orquestra o agente
+    event = request.get_json(force=True) or {}
+    extracted = extract_zapi_event(event)
+    text = (extracted.get("text") or "").strip()
+    phone = extracted.get("phone") or ""
+    sender_name = extracted.get("sender_name") or ""
+
+    if not text or not phone:
+        return jsonify({"status": "ignored", "reason": "sem texto ou telefone"}), 200
+
+    lead_id = f"LEAD-{phone}"
+
+    # Analisar o conteúdo
+    analysis_request = {"lead_id": lead_id, "transcript": text, "metadata": {"origem": "whatsapp"}}
+    with app.test_request_context(json=analysis_request):
+        analysis_resp = analyze()
+    # Flask view returns (Response, code) or Response
+    if isinstance(analysis_resp, tuple):
+        flask_resp, status_code = analysis_resp
+        if status_code != 200:
+            return jsonify({"error": "falha na análise"}), 500
+        analysis_json = flask_resp.get_json()  # type: ignore
+    else:
+        analysis_json = analysis_resp.get_json()  # type: ignore
+
+    # Gerar resposta ao cliente
+    reply_text = generate_reply(text, analysis_json, sender_name)
+
+    # Atualizar CRM (ou log local)
+    crm_sync = update_crm(
+        lead_id=lead_id,
+        stage=analysis_json.get("stage"),
+        insights=analysis_json.get("insights", []),
+        tags=analysis_json.get("tags", []),
+        tasks=analysis_json.get("tasks_to_create", []),
+    )
+
+    # Enviar via WhatsApp (Z-API)
+    wa_send = send_whatsapp_message(phone=phone, message=reply_text)
+
+    # Log de histórico
+    log_jsonl("history.jsonl", {
+        "lead_id": lead_id,
+        "phone": phone,
+        "name": sender_name,
+        "text": text,
+        "reply": reply_text,
+        "analysis": analysis_json,
+        "crm_sync": crm_sync,
+        "wa_send": wa_send,
+        "ts": datetime.utcnow().isoformat(),
+    })
+
+    return jsonify({
+        "ok": True,
+        "lead_id": lead_id,
+        "stage": analysis_json.get("stage"),
+        "reply": reply_text,
+        "wa": wa_send,
+        "crm": crm_sync,
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

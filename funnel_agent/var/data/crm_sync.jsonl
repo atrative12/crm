@@ -1,0 +1,1 @@
+{"lead_id": "LEAD-5511912345678", "stage": "Proposta", "insights": ["Sinal de orçamento: Indireto"], "tags": ["nao_decisor"], "tasks": [{"due_in_hours": 48, "priority": "High", "title": "Identificar e incluir decisor"}, {"due_in_hours": 12, "priority": "High", "title": "Gerar proposta base e anexar cases"}], "ts": "2025-08-08T14:00:21.424216"}
