@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
+import { AGENT_TEMPLATES } from './agentTemplates';
 
 interface AiAgentFormData {
   name: string;
@@ -29,6 +30,22 @@ export const AiAgentForm: React.FC<AiAgentFormProps> = ({ agent, onClose, onSave
     isActive: agent?.isActive || false,
     triggerEvents: agent?.triggerEvents || []
   });
+
+  const handleTemplateSelect = (templateId: string) => {
+    const tpl = AGENT_TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) return;
+    setFormData(prev => ({
+      ...prev,
+      name: tpl.name,
+      description: tpl.description,
+      model: tpl.model,
+      temperature: tpl.temperature,
+      maxTokens: tpl.maxTokens,
+      systemPrompt: tpl.systemPrompt,
+      triggerEvents: tpl.triggerEvents,
+      isActive: true,
+    }));
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -84,6 +101,22 @@ export const AiAgentForm: React.FC<AiAgentFormProps> = ({ agent, onClose, onSave
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Usar template
+          </label>
+          <select
+            onChange={(e) => handleTemplateSelect(e.target.value)}
+            defaultValue=""
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          >
+            <option value="" disabled>Selecione um template (opcional)</option>
+            {AGENT_TEMPLATES.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="md:col-span-2">
           <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Nome do Agente *
@@ -173,7 +206,7 @@ export const AiAgentForm: React.FC<AiAgentFormProps> = ({ agent, onClose, onSave
             id="systemPrompt"
             value={formData.systemPrompt}
             onChange={handleChange}
-            rows={4}
+            rows={6}
             placeholder="Defina como o agente deve se comportar..."
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />

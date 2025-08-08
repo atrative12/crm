@@ -5,6 +5,7 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { AiAgentForm } from './AiAgentForm';
+import { AGENT_TEMPLATES, AgentTemplate } from './agentTemplates';
 
 interface AiAgent {
   id: string;
@@ -26,6 +27,7 @@ export const AiAgentsManagement: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<AiAgent | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [agentToDelete, setAgentToDelete] = useState<AiAgent | null>(null);
+  const [prefillFromTemplate, setPrefillFromTemplate] = useState<AgentTemplate | null>(null);
 
   const handleAddAgent = () => {
     setSelectedAgent(null);
@@ -48,6 +50,12 @@ export const AiAgentsManagement: React.FC = () => {
       setAgentToDelete(null);
       setIsDeleteConfirmOpen(false);
     }
+  };
+
+  const handleAddFromTemplate = (template: AgentTemplate) => {
+    setPrefillFromTemplate(template);
+    setSelectedAgent(null);
+    setIsAgentModalOpen(true);
   };
 
   const handleSaveAgent = (formData: Omit<AiAgent, 'id' | 'createdAt'>) => {
@@ -105,6 +113,30 @@ export const AiAgentsManagement: React.FC = () => {
           Novo Agente
         </Button>
       </motion.div>
+
+      {/* Templates Grid */}
+      <Card className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-4 h-4 text-primary-600" />
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Criar Agentes I.A (Templates)</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {AGENT_TEMPLATES.map((tpl) => (
+            <div key={tpl.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="font-semibold text-gray-900 dark:text-gray-100">{tpl.name}</h4>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{tpl.description}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex justify-between items-center">
+                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{tpl.model}</span>
+                <Button size="sm" onClick={() => handleAddFromTemplate(tpl)}>Usar template</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       {/* Agents Grid */}
       <AnimatePresence>
@@ -246,13 +278,22 @@ export const AiAgentsManagement: React.FC = () => {
       {/* Modais */}
       <Modal
         isOpen={isAgentModalOpen}
-        onClose={() => setIsAgentModalOpen(false)}
+        onClose={() => { setIsAgentModalOpen(false); setPrefillFromTemplate(null); }}
         title={selectedAgent ? "Editar Agente" : "Novo Agente de IA"}
         size="lg"
       >
         <AiAgentForm
-          agent={selectedAgent}
-          onClose={() => setIsAgentModalOpen(false)}
+          agent={prefillFromTemplate ? {
+            name: prefillFromTemplate.name,
+            description: prefillFromTemplate.description,
+            model: prefillFromTemplate.model,
+            temperature: prefillFromTemplate.temperature,
+            maxTokens: prefillFromTemplate.maxTokens,
+            systemPrompt: prefillFromTemplate.systemPrompt,
+            isActive: true,
+            triggerEvents: prefillFromTemplate.triggerEvents,
+          } as any : selectedAgent}
+          onClose={() => { setIsAgentModalOpen(false); setPrefillFromTemplate(null); }}
           onSave={handleSaveAgent}
         />
       </Modal>
